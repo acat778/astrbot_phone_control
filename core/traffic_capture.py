@@ -332,7 +332,10 @@ class TrafficCapture:
             self._device_lease = DeviceLease(self.adb, "traffic")
             await self._device_lease.prepare()
         ca_path = self.confdir / traffic_mod.CA_FILE_NAME
-        cert_hash = self._subject_hash_old(ca_path) if self._ca_mode == "system" else ""
+        cert_hash = (
+            await asyncio.to_thread(self._subject_hash_old, ca_path)
+            if self._ca_mode == "system" else ""
+        )
         if self._ca_mode == "system" and not cert_hash:
             raise RuntimeError("无法计算 CA 证书哈希（容器缺少 openssl）")
         # 首次配置时记录设备原有代理，stop 时恢复；保活重配置保留首次记录，

@@ -76,3 +76,47 @@ def test_start_skips_when_root_unavailable(tmp_path) -> None:
     assert status["unavailable_reason"]
     assert "root" in status["unavailable_reason"]
     assert "不可用" in capture.status_text()
+
+
+def test_certificate_process_keeps_event_loop_responsive(tmp_path, monkeypatch):
+    import threading
+    from types import SimpleNamespace
+
+    capture, _adb = _capture(tmp_path)
+    in_process = threading.Event()
+    release = threading.Event()
+    responsiveness = []
+
+    def openssl(*_args, **_kwargs):
+        in_process.set()
+        responsiveness.append(release.wait(1))
+        return SimpleNamespace(stdout="deadbeef\n")
+
+    async def no_root():
+        return False
+
+    monkeypatch.setattr("core.traffic_capture.subprocess.run", openssl)
+    monkeypatch.setattr("core.traffic_capture.ROOT_SETTLE_SECONDS", 0)
+    monkeypatch.setattr(capture, "_wait_root", no_root)
+
+    async def run():
+        async def heartbeat():
+            while not in_process.is_set():
+                await asyncio.sleep(0)
+            release.set()
+
+        beat = asyncio.create_task(heartbeat())
+        try:
+            try:
+                await capture._setup_device()
+            except RuntimeError as exc:
+                assert "root" in str(exc)
+            else:
+                raise AssertionError("无 root 设备应拒绝系统 CA 配置")
+            await beat
+        finally:
+            release.set()
+            beat.cancel()
+
+    asyncio.run(run())
+    assert responsiveness == [True], "证书处理期间事件循环应继续运行心跳"
