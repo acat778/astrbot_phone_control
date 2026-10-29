@@ -606,3 +606,54 @@ def test_recorded_cache_last_segment_reports_complete_without_live_claim(tmp_pat
         assert m.current(e) is t
         await m.close()
     asyncio.run(run())
+
+
+def test_watch_closed_during_poll_reports_content_end_without_cancelling_caller(tmp_path):
+    async def run():
+        manager = ContentTasks(service(tmp_path))
+        event = SimpleNamespace(unified_msg_origin="owner")
+        started = asyncio.Event()
+
+        async def watch():
+            started.set()
+            await asyncio.Event().wait()
+
+        async def caller():
+            result = json.loads(await manager.poll_watch(event, watch, wait_seconds=60))
+            assert result["status"] == "cancelled" and "重新观察" in result["next"]
+            from core.tool_reports import result_failed
+            assert not result_failed(json.dumps(result)), "正常取消状态不应触发工具错误汇报"
+            assert asyncio.current_task().cancelling() == 0
+            return "caller continues"
+
+        poll = asyncio.create_task(caller())
+        await started.wait()
+        await manager.close()
+        assert await poll == "caller continues"
+        assert not poll.cancelled() and not manager.watches
+
+    asyncio.run(run())
+
+
+def test_caller_cancellation_still_cancels_underlying_watch(tmp_path):
+    async def run():
+        manager = ContentTasks(service(tmp_path))
+        event = SimpleNamespace(unified_msg_origin="owner")
+        started, stopped = asyncio.Event(), asyncio.Event()
+
+        async def watch():
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+
+        poll = asyncio.create_task(manager.poll_watch(event, watch, wait_seconds=60))
+        await started.wait()
+        poll.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await poll
+        assert poll.cancelled() and stopped.is_set() and not manager.watches
+        await manager.close()
+
+    asyncio.run(run())

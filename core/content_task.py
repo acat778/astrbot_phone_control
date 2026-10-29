@@ -67,6 +67,11 @@ class ContentTasks:
                     understood_until=task.get("cursor", 0),
                     next=f"本段仍在采集或分析，请保持当前内容并再次调用 {tool_name} 领取同一次结果；不要重复开始、切换内容或结束本轮。action=finish 可取消。",
                 ), ensure_ascii=False)
+            if pending.cancelled():
+                return json.dumps(dict(
+                    status="cancelled",
+                    next="内容观看已取消或结束（可能由插件重载触发）；本次没有可领取的结果，请重新观察页面",
+                ), ensure_ascii=False)
             return pending.result()
         except asyncio.CancelledError:
             pending.cancel()
