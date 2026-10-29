@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import logging
+from astrbot.api import logger
 from pathlib import Path, PurePosixPath
 import secrets
 import shlex
@@ -107,7 +107,7 @@ class AppFiles:
             try:
                 await lease.close()
             except Exception as exc:
-                logging.getLogger(__name__).warning("文件租约收尾未完成，设备看门狗将清理临时文件：%s", exc)
+                logger.warning("文件租约收尾未完成，设备看门狗将清理临时文件：%s", exc)
 
     async def read(self, source, maximum):
         source = phone_path(source)

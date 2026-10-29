@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import hashlib
-import logging
+from astrbot.api import logger
 import math
 import re
 import secrets
@@ -96,7 +96,7 @@ class AppRecording:
                 cleanup = asyncio.create_task(self.bridge.call('media_delete',recording_id=current['recording_id'],timeout=15), context=contextvars.Context())
                 await asyncio.shield(cleanup)
             except Exception as exc:
-                logging.getLogger(__name__).warning('手机录制收尾失败，连接结束时将清理：%s',exc)
+                logger.warning('手机录制收尾失败，连接结束时将清理：%s',exc)
                 raise
         self.current = None
 

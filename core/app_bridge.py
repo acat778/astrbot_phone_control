@@ -6,7 +6,7 @@ import asyncio
 import base64
 import contextlib
 import json
-import logging
+from astrbot.api import logger
 import secrets
 import ssl
 import struct
@@ -286,7 +286,7 @@ class AppBridge:
                     try:
                         await self.on_ready()
                     except Exception:
-                        logging.getLogger(__name__).exception(
+                        logger.exception(
                             "Relay App 连接就绪后的初始化失败"
                         )
 
