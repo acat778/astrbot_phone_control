@@ -21,7 +21,6 @@ from typing import Any, Callable
 
 from .adb import (
     FOCUS_DUMP_COMMAND,
-    PNG_SLOW_THRESHOLD_MS,
     AdbClient,
     parse_foreground_dump,
     parse_wm_size,
@@ -565,7 +564,8 @@ class DeviceActions:
           sleep 0.25s 后重试，最多 ``retries`` 次；仍不一致时返回最后一张
           可用画面（日志中标明 mismatch，不抛致命错误）；
         - ``fast=True`` 强制走 raw 截图路径；否则按进程内缓存的 App 画像
-          自动选择，PNG 慢/异常会自动切到 raw 并记住该 App；
+          自动选择，只有实测证明 raw 明显更快时才把该 App 记入画像
+          （PNG 慢不会触发切换，慢链路下 raw 反而更慢）；
         - 成功后 ``last_screenshot_meta`` 记录 method/duration_ms/retries/
           expected/actual 等信息；落盘后缀按实际格式（.png / .jpg）。
         """
@@ -605,18 +605,14 @@ class DeviceActions:
             last_duration_ms = duration_ms
             last_before = before_package
             last_after = after_package
-            # 仅当调用方没有强制 fast 时，才把「PNG 慢/内部已切 raw」记入画像
-            if not fast and app_key:
-                if image_format == "png" and duration_ms > PNG_SLOW_THRESHOLD_MS:
-                    if not cached_prefer_fast:
-                        self._log(
-                            f"App {app_key} 的 PNG 截图耗时 {duration_ms}ms 偏慢，"
-                            "后续该 App 优先使用 raw 路径"
-                        )
-                    self._screenshot_profile[app_key] = True
-                elif image_format == "jpeg" and not cached_prefer_fast:
+            # 仅当调用方没有强制 fast、且实测证明 raw 确实更快时，才把该 App 记入画像。
+            # 不能拿「PNG 耗时超过固定阈值」当依据：慢链路上 raw 要传 4~5 倍数据量，
+            # 一次慢截图会被误记成「该 App 该一直用 raw」，之后每次都更慢。
+            if not fast and app_key and not cached_prefer_fast:
+                if self._adb.last_capture_route == "raw" and self._adb.prefers_raw_capture():
                     self._log(
-                        f"App {app_key} 已自动切换 raw 截图路径，后续沿用（{duration_ms}ms）"
+                        f"App {app_key} 实测 raw 截图更快（{duration_ms}ms），"
+                        "后续该 App 优先使用 raw 路径"
                     )
                     self._screenshot_profile[app_key] = True
             if not mismatch:

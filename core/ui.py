@@ -226,13 +226,16 @@ async def dump_ui(
     adb: AdbClient,
     *,
     timeout: float | None = None,
-    max_retries: int = 2,
+    max_retries: int = 0,
 ) -> ScreenSnapshot:
     """采集当前界面的 UI 树。
 
     优先 ``exec-out uiautomator dump /dev/tty``；失败时回退到
     ``uiautomator dump /sdcard/window_dump.xml`` + ``exec-out cat``；
     每次尝试内部按 ``max_retries`` 重试，全部失败抛 ``UiDumpError``。
+
+    默认不重试：持续刷新动画的页面（如信息流首页）``waitForIdle`` 必然超时，
+    多轮重试只会把一次失败拖成数十秒，不如尽快降级到截图。
     """
     attempts = max(0, int(max_retries)) + 1
     last_error: Exception | None = None

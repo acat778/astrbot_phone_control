@@ -73,7 +73,13 @@ FOCUS_DUMP_COMMAND = (
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _JPEG_SIGNATURE = b"\xff\xd8"
 PNG_MIN_BYTES = 500             # PNG 数据长度下限，低于该值视为损坏
-PNG_SLOW_THRESHOLD_MS = 800.0   # PNG 截图耗时超过该值后改走 raw 路径
+# 慢链路提示阈值：超过该值只记日志/作为诊断信号，**不再丢弃已获取的 PNG**。
+# 慢链路下 raw 需传 5.76MB 裸像素（900x1600x4），是 PNG 的 4~5 倍，重传只会更慢。
+PNG_SLOW_THRESHOLD_MS = 15000.0
+# 自动选择 raw 的实测依据：raw 平均耗时需低于 PNG 的该比例才认为「确实更快」。
+_RAW_PREFER_RATIO = 0.8
+# 截图耗时记忆的指数滑动平均系数（越小越平滑）。
+_CAPTURE_EWMA_ALPHA = 0.4
 _JPEG_QUALITY = 82              # raw -> JPEG 的质量（体积与清晰度折中）
 _RAW_HEADER_SIZE_NEW = 16       # Android 10+ 头：(w, h, format, colorspace)
 _RAW_HEADER_SIZE_SRC = 12       # Android 10 之前的 12 字节头：(w, h, format)
@@ -455,6 +461,10 @@ class AdbClient:
         self._lock_obj: asyncio.Lock | None = None
         self._lock_loop: asyncio.AbstractEventLoop | None = None
         self._png_slow_threshold_ms = PNG_SLOW_THRESHOLD_MS
+        # 两条截图路径的实测平均耗时（毫秒，EWMA）；None 表示尚无样本。
+        self._png_avg_ms: float | None = None
+        self._raw_avg_ms: float | None = None
+        self._last_capture_route: str = ""
         self._ffmpeg_path: Path | None = None
         self._ffmpeg_checked = False
 
@@ -1119,6 +1129,43 @@ class AdbClient:
             )
         return repaired
 
+    def _record_capture_duration(self, route: str, duration_ms: int) -> None:
+        """记录一次成功截图的实测耗时（EWMA），作为「raw 是否更快」的唯一依据。"""
+        value = float(max(0, duration_ms))
+        attr = "_png_avg_ms" if route == "png" else "_raw_avg_ms"
+        previous = getattr(self, attr)
+        setattr(
+            self,
+            attr,
+            value if previous is None else previous + _CAPTURE_EWMA_ALPHA * (value - previous),
+        )
+        self._last_capture_route = route
+
+    def _drop_raw_sample(self) -> None:
+        """丢弃 raw 耗时样本：该路径刚失败，不能再按失效的结论优先 raw。"""
+        self._raw_avg_ms = None
+
+    @property
+    def last_capture_route(self) -> str:
+        """最近一次成功截图实际走的路径（``"png"`` / ``"raw"``）。"""
+        return self._last_capture_route
+
+    def capture_stats(self) -> dict[str, float | None]:
+        """两条截图路径的实测平均耗时（毫秒），供日志与诊断使用。"""
+        return {"png_avg_ms": self._png_avg_ms, "raw_avg_ms": self._raw_avg_ms}
+
+    def prefers_raw_capture(self) -> bool:
+        """自动模式是否应优先走 raw 路径。
+
+        仅当两条路径都有实测样本、且 raw 平均耗时低于 PNG 的
+        ``_RAW_PREFER_RATIO`` 时才成立。没有样本时一律走 PNG：
+        PNG 约 1.2MB、raw 约 5.76MB，链路越慢 PNG 越占优。
+        """
+        png, raw = self._png_avg_ms, self._raw_avg_ms
+        if png is None or raw is None or png <= 0:
+            return False
+        return raw <= png * _RAW_PREFER_RATIO
+
     async def capture_screen(
         self,
         *,
@@ -1127,11 +1174,15 @@ class AdbClient:
     ) -> tuple[bytes, str, int]:
         """截图并返回 ``(图片字节, "png"|"jpeg", 耗时毫秒)``。
 
-        策略：
-        - 默认先走 ``exec-out screencap -p``；若 PNG 耗时超过
-          ``_png_slow_threshold_ms``（默认 800ms）或数据异常，则改走 raw
+        策略（**有效图片优先，不重复传输**）：
+
+        - 默认先走 ``exec-out screencap -p``；只要 PNG 数据校验通过就立即返回，
+          不会因为耗时超过 ``_png_slow_threshold_ms`` 而丢弃已到手的 PNG 重传 raw；
+        - 仅当 PNG 命令失败或数据损坏时才改走 raw
           ``exec-out screencap`` + 本地编码（Pillow JPEG(82) / ffmpeg PNG）；
         - ``fast=True`` 直接走 raw 路径，失败再回退 PNG；
+        - 自动模式只有在实测证明 raw 明显更快（``prefers_raw_capture()``）时
+          才先试 raw，此时 PNG 尚未传输，不存在重复传输；
         - 两条路径都失败时抛 ``AdbCommandError``。
         """
         started = time.perf_counter()
@@ -1142,11 +1193,29 @@ class AdbClient:
         if fast:
             try:
                 image, image_format = await self._capture_raw_image(timeout=timeout)
-                return image, image_format, elapsed_ms()
             except PhoneControlError as exc:
                 self._log(f"fast 截图 raw 路径失败，回退 PNG：{exc}")
+                self._drop_raw_sample()
+            else:
+                duration = elapsed_ms()
+                self._record_capture_duration("raw", duration)
+                return image, image_format, duration
             png = await self._capture_png_image(timeout=timeout)
-            return png, "png", elapsed_ms()
+            duration = elapsed_ms()
+            self._record_capture_duration("png", duration)
+            return png, "png", duration
+
+        if self.prefers_raw_capture():
+            # 已有实测样本表明 raw 更快；此时 PNG 还没开始传，先试 raw 不会造成重复传输
+            try:
+                image, image_format = await self._capture_raw_image(timeout=timeout)
+            except PhoneControlError as exc:
+                self._log(f"raw 路径（实测更快）失败，回退 PNG：{exc}")
+                self._drop_raw_sample()
+            else:
+                duration = elapsed_ms()
+                self._record_capture_duration("raw", duration)
+                return image, image_format, duration
 
         png_error: PhoneControlError | None = None
         try:
@@ -1156,27 +1225,25 @@ class AdbClient:
             self._log(f"PNG 截图失败，尝试 raw 路径：{exc}")
         else:
             png_ms = elapsed_ms()
-            threshold = self._png_slow_threshold_ms
-            if png_ms <= threshold:
-                return png, "png", png_ms
-            self._log(
-                f"PNG 截图耗时 {png_ms}ms 超过阈值 {threshold:.0f}ms，改走 raw 路径"
-            )
-            try:
-                image, image_format = await self._capture_raw_image(timeout=timeout)
-                return image, image_format, elapsed_ms()
-            except PhoneControlError as exc:
-                self._log(f"raw 路径失败，返回已获取的 PNG：{exc}")
-                return png, "png", elapsed_ms()
+            self._record_capture_duration("png", png_ms)
+            if png_ms > self._png_slow_threshold_ms:
+                # 只记日志不重传：慢链路上 raw 是 PNG 的 4~5 倍数据量，重传只会更慢
+                self._log(
+                    f"PNG 截图耗时 {png_ms}ms 超过提示阈值 "
+                    f"{self._png_slow_threshold_ms:.0f}ms，仍直接返回该 PNG"
+                )
+            return png, "png", png_ms
 
         try:
             image, image_format = await self._capture_raw_image(timeout=timeout)
-            return image, image_format, elapsed_ms()
         except PhoneControlError as raw_error:
             raise AdbCommandError(
                 "截图失败（PNG 与 raw 路径均不可用）",
                 detail=f"PNG：{png_error}；raw：{raw_error}",
             ) from png_error
+        duration = elapsed_ms()
+        self._record_capture_duration("raw", duration)
+        return image, image_format, duration
 
     # ------------------------------------------------------------------
     # 设备信息

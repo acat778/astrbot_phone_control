@@ -55,6 +55,8 @@ class FakeAdb:
         capture_bytes: bytes = b"\x89PNG\r\n\x1a\n" + b"0" * 64,
         capture_format: str = "png",
         capture_duration_ms: int = 120,
+        capture_route="png",
+        prefer_raw=False,
         capture_error: Exception | None = None,
         shell_error: Exception | None = None,
     ) -> None:
@@ -68,6 +70,8 @@ class FakeAdb:
         self.capture_bytes = capture_bytes
         self.capture_format = capture_format
         self.capture_duration_ms = capture_duration_ms
+        self.capture_route = capture_route
+        self.prefer_raw = prefer_raw
         self.capture_error = capture_error
         self.shell_error = shell_error
         self.ensure_ready_calls = 0
@@ -135,6 +139,19 @@ class FakeAdb:
         if callable(duration):
             duration = duration(call_index)
         return data, image_format, duration
+
+    @property
+    def last_capture_route(self) -> str:
+        value = self.capture_route
+        if callable(value):
+            value = value(len(self.capture_calls))
+        return str(value)
+
+    def prefers_raw_capture(self) -> bool:
+        value = self.prefer_raw
+        if callable(value):
+            value = value(len(self.capture_calls))
+        return bool(value)
 
     def action_commands(self) -> list[str]:
         """过滤掉查询类命令，只保留真正改变设备状态的命令。"""
@@ -587,8 +604,29 @@ def test_screenshot_foreground_unknown_counts_as_mismatch(tmp_path):
     assert actions.last_screenshot_meta["mismatch"] is True
 
 
-def test_screenshot_png_slow_remembers_raw_per_app(tmp_path):
-    fake = FakeAdb(capture_duration_ms=900)
+def test_screenshot_slow_png_does_not_pin_app_to_raw(tmp_path):
+    """慢链路上的慢 PNG 不应把 App 永久钉在 raw 路径上。
+
+    复现 review 中的 UAT 限速场景：PNG 单次要 24.4s。旧逻辑只要超过固定阈值
+    就把该 App 记入画像，之后每次都走 raw（5.76MB），越走越慢。
+    """
+    fake = FakeAdb(capture_duration_ms=24400, capture_route="png", prefer_raw=False)
+    actions = make_actions(fake)
+    run(actions.screenshot(tmp_path / "a"))
+    assert actions.screenshot_profile() == {}
+    run(actions.screenshot(tmp_path / "b"))
+    assert [call["fast"] for call in fake.capture_calls] == [False, False]
+
+
+def test_screenshot_remembers_raw_per_app_when_measured_faster(tmp_path):
+    """只有 adb 层实测出 raw 更快、且本次确实走了 raw 时，才记住该 App。"""
+    fake = FakeAdb(
+        capture_format="jpeg",
+        capture_bytes=b"\xff\xd8fake-jpeg",
+        capture_duration_ms=300,
+        capture_route="raw",
+        prefer_raw=True,
+    )
     actions = make_actions(fake)
     run(actions.screenshot(tmp_path / "a"))
     assert actions.screenshot_profile().get("com.example.app") is True

@@ -18,6 +18,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import core.adb as adb_module  # noqa: E402
+
 from core.adb import (  # noqa: E402
     PNG_MIN_BYTES,
     AdbClient,
@@ -74,6 +76,26 @@ class FakeRunner:
 
     def flat_calls(self) -> list[str]:
         return [" ".join(argv) for argv, _timeout in self.calls]
+
+
+class FakeClock:
+    """按脚本推进的 ``perf_counter``，用于模拟慢链路下各阶段耗时。"""
+
+    def __init__(self, *stamps: float) -> None:
+        self._stamps = list(stamps) or [0.0]
+        self._index = 0
+
+    def perf_counter(self) -> float:
+        value = self._stamps[min(self._index, len(self._stamps) - 1)]
+        self._index += 1
+        return value
+
+
+def fake_time(*stamps: float):
+    """构造只提供 ``perf_counter`` 的 time 替身（仅替换 adb 模块内的引用）。"""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(perf_counter=FakeClock(*stamps).perf_counter)
 
 
 def standard_handler(argv):
@@ -452,7 +474,12 @@ def test_capture_screen_fast_uses_raw(tmp_path, monkeypatch):
     assert " -p" not in flat_calls[0]
 
 
-def test_capture_screen_slow_png_switches_to_raw(tmp_path, monkeypatch):
+def test_capture_screen_slow_png_returns_png_without_retransfer(tmp_path, monkeypatch):
+    """慢链路：PNG 已完整取得就直接返回，不再请求 raw。
+
+    复现 review 中的 UAT 限速场景：PNG 在 24.4s 时已完整取回，旧逻辑因超过
+    15s 阈值继续请求 raw，raw 再等 30s 超时后才返回同一张 PNG，总耗时 54.4s。
+    """
     valid_png = make_test_png()
     raw = make_raw_screencap(2, 2)
 
@@ -462,14 +489,143 @@ def test_capture_screen_slow_png_switches_to_raw(tmp_path, monkeypatch):
 
     client = make_client(tmp_path)
     client._run_adb = FakeRunner(handler)  # type: ignore[method-assign]
-    client._png_slow_threshold_ms = -1.0  # 任意 PNG 耗时都视为超阈值
+    monkeypatch.setattr(client, "_raw_to_image", _fake_converter())
+    monkeypatch.setattr(adb_module, "time", fake_time(0.0, 24.4))
+    data, image_format, elapsed_ms = run(client.capture_screen())
+    assert data == valid_png
+    assert image_format == "png"
+    assert elapsed_ms == 24400  # 只花了 PNG 那一次
+    flat_calls = client._run_adb.flat_calls()  # type: ignore[attr-defined]
+    assert len(flat_calls) == 1  # 没有追加 raw 请求
+    assert " -p" in flat_calls[0]
+    assert client.last_capture_route == "png"
+    assert client.capture_stats()["raw_avg_ms"] is None
+
+
+def test_capture_screen_slow_link_never_exceeds_png_cost(tmp_path, monkeypatch):
+    """限速链路：raw 会超时也无关紧要——根本不该发起 raw。"""
+    valid_png = make_test_png()
+
+    async def handler(argv):
+        flat = " ".join(argv)
+        if " -p" not in flat:
+            raise AdbCommandError("execution timeout", detail="raw 30s 未返回")
+        return 0, valid_png, b""
+
+    client = make_client(tmp_path)
+    client._run_adb = FakeRunner(handler)  # type: ignore[method-assign]
+    monkeypatch.setattr(client, "_png_slow_threshold_ms", 15000.0)
+    monkeypatch.setattr(adb_module, "time", fake_time(0.0, 24.4))
+    data, image_format, _elapsed = run(client.capture_screen())
+    assert data == valid_png
+    assert image_format == "png"
+    assert len(client._run_adb.calls) == 1  # type: ignore[attr-defined]
+
+
+def test_capture_screen_auto_prefers_raw_when_measured_faster(tmp_path, monkeypatch):
+    """自动模式优先 raw 需要实测依据：raw 平均耗时明显低于 PNG 才成立。"""
+    raw = make_raw_screencap(2, 2)
+    runner = FakeRunner(lambda argv: (0, raw, b""))
+    client = make_client(tmp_path)
+    client._run_adb = runner  # type: ignore[method-assign]
+    monkeypatch.setattr(client, "_raw_to_image", _fake_converter())
+    client._png_avg_ms = 900.0
+    client._raw_avg_ms = 300.0
+    assert client.prefers_raw_capture() is True
+    data, image_format, _elapsed = run(client.capture_screen())
+    assert image_format == "jpeg"
+    assert data.startswith(b"\xff\xd8")
+    flat_calls = runner.flat_calls()  # type: ignore[attr-defined]
+    assert len(flat_calls) == 1
+    assert flat_calls[0].endswith("exec-out screencap")
+    assert client.last_capture_route == "raw"
+
+
+def test_capture_screen_auto_keeps_png_when_raw_measured_slower(tmp_path):
+    """实测 raw 更慢（如慢链路）时，自动模式必须回到 PNG。"""
+    valid_png = make_test_png()
+    runner = FakeRunner(lambda argv: (0, valid_png, b""))
+    client = make_client(tmp_path)
+    client._run_adb = runner  # type: ignore[method-assign]
+    client._png_avg_ms = 24400.0
+    client._raw_avg_ms = 30400.0
+    assert client.prefers_raw_capture() is False
+    data, image_format, _elapsed = run(client.capture_screen())
+    assert data == valid_png
+    assert image_format == "png"
+    assert len(runner.calls) == 1  # type: ignore[attr-defined]
+    assert " -p" in runner.flat_calls()[0]  # type: ignore[attr-defined]
+
+
+def test_capture_screen_no_samples_defaults_to_png(tmp_path):
+    """没有任何实测样本时不猜 raw：PNG 体积只有 raw 的 1/5 左右。"""
+    runner = FakeRunner(lambda argv: (0, make_test_png(), b""))
+    client = make_client(tmp_path)
+    client._run_adb = runner  # type: ignore[method-assign]
+    assert client.capture_stats() == {"png_avg_ms": None, "raw_avg_ms": None}
+    assert client.prefers_raw_capture() is False
+    _data, image_format, _elapsed = run(client.capture_screen())
+    assert image_format == "png"
+    assert len(runner.calls) == 1  # type: ignore[attr-defined]
+
+
+def test_capture_screen_raw_preference_cleared_after_failure(tmp_path, monkeypatch):
+    """优先 raw 的样本一旦失效（raw 失败）就被丢弃，下次回到 PNG。"""
+    valid_png = make_test_png()
+
+    async def handler(argv):
+        flat = " ".join(argv)
+        if " -p" in flat:
+            return 0, valid_png, b""
+        raise AdbCommandError("raw 失败")
+
+    client = make_client(tmp_path)
+    client._run_adb = FakeRunner(handler)  # type: ignore[method-assign]
+    client._png_avg_ms = 900.0
+    client._raw_avg_ms = 300.0
+    data, image_format, _elapsed = run(client.capture_screen())
+    assert image_format == "png"
+    assert data == valid_png
+    assert client.capture_stats()["raw_avg_ms"] is None
+    assert client.prefers_raw_capture() is False
+    run(client.capture_screen())
+    assert " -p" in client._run_adb.flat_calls()[-1]  # type: ignore[attr-defined]
+
+
+def test_capture_screen_explicit_fast_ignores_png_samples(tmp_path, monkeypatch):
+    """显式 fast 不受实测结论影响，仍直接走 raw。"""
+    raw = make_raw_screencap(2, 2)
+    runner = FakeRunner(lambda argv: (0, raw, b""))
+    client = make_client(tmp_path)
+    client._run_adb = runner  # type: ignore[method-assign]
+    monkeypatch.setattr(client, "_raw_to_image", _fake_converter())
+    client._png_avg_ms = 100.0  # PNG 明显更快也不影响显式 fast
+    client._raw_avg_ms = 5000.0
+    data, image_format, _elapsed = run(client.capture_screen(fast=True))
+    assert image_format == "jpeg"
+    assert data.startswith(b"\xff\xd8")
+    flat_calls = runner.flat_calls()  # type: ignore[attr-defined]
+    assert flat_calls[0].endswith("exec-out screencap")
+    assert " -p" not in flat_calls[0]
+
+
+def test_capture_screen_png_corrupt_falls_back_to_raw(tmp_path, monkeypatch):
+    """PNG 魔数正确但数据无法解码时，才改走 raw。"""
+    pytest.importorskip("PIL")
+    corrupt_png = b"\x89PNG\r\n\x1a\n" + b"broken-data" * 80  # 长度足够但解码失败
+    raw = make_raw_screencap(2, 2)
+
+    def handler(argv):
+        flat = " ".join(argv)
+        return 0, (corrupt_png if " -p" in flat else raw), b""
+
+    client = make_client(tmp_path)
+    client._run_adb = FakeRunner(handler)  # type: ignore[method-assign]
     monkeypatch.setattr(client, "_raw_to_image", _fake_converter())
     data, image_format, _elapsed = run(client.capture_screen())
     assert image_format == "jpeg"
-    assert len(runner := client._run_adb.calls) == 2  # type: ignore[attr-defined]
-    flat_calls = [" ".join(argv) for argv, _timeout in runner]
-    assert any(" -p" in flat for flat in flat_calls)
-    assert any(flat.endswith("exec-out screencap") for flat in flat_calls)
+    assert data.startswith(b"\xff\xd8")
+    assert client.last_capture_route == "raw"
 
 
 def test_capture_screen_png_anomaly_falls_back_to_raw(tmp_path, monkeypatch):
