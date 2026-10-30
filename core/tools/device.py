@@ -14,7 +14,7 @@ from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.core.message.message_event_result import MessageChain
 
 from ..page_content import page_traffic_footer
-from ..errors import PhoneControlError, UiTargetNotFoundError
+from ..errors import PhoneControlError, UiDumpError, UiTargetNotFoundError
 
 from .base import _PhoneToolBase, _as_float, _as_int, _json_text, _ok, _wrap_call
 
@@ -126,14 +126,23 @@ class PhoneScreenTool(_PhoneToolBase):
         image_data: bytes | None = None
         foreground_package = ""
         foreground_activity = ""
-        if mode in {"ui", "both"}:
-            ui_text, _snapshot = await self.service.screen(max_nodes=max_nodes)
-            sections.append(ui_text)
-            hint_source += ui_text
-
         want_image = mode in {"image", "both"} or (
             mode == "ui" and include_screenshot
         )
+        if mode in {"ui", "both"}:
+            try:
+                ui_text, _snapshot = await self.service.screen(max_nodes=max_nodes)
+            except UiDumpError as exc:
+                if not want_image:
+                    raise
+                sections.append(
+                    f"UI 节点不可用：{exc}。本次仅取得截图；"
+                    "请按实际画面观察，后续可用 mode=image；文本/节点定位需要重新采集成功。"
+                )
+            else:
+                sections.append(ui_text)
+                hint_source += ui_text
+
         if want_image:
             if mode in {"image", "both"}:
                 try:
