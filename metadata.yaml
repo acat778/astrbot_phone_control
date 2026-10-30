@@ -7,7 +7,7 @@ desc: |
 
 
 help: /phone help 查看全部指令。常用：/phone status、/phone browse 微信 5、/phone task 去B站看视频总结（后台执行）、/phone tasks、/phone quota [audit [小时]]、/phone play [tokens]、/phone interactions、/phone continuous on|off|status、/phone learn [关键词|条数]、/phone novelty [status|reset]、/phone watch [秒数]、/phone stop [job_id|all]、/phone wg [status|start|stop|restart|config]、/phone network [status|start|login|stop]。
-version: 0.2.0
+version: 0.2.1
 author: ACAT
 repo: https://github.com/acat778/astrbot_phone_control
 astrbot_version: ">=4.27.1,<5"
