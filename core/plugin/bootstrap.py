@@ -407,6 +407,7 @@ class BootstrapMixin:
         self._agent_usage_patch_installed = install_agent_usage_capture(
             lambda message: logger.info("%s", message),
             should_capture=self._should_capture_agent_usage,
+            prepare_runner=self._prepare_phone_runner,
         )
         self.service = PhoneService(
             raw_config=self.raw_config,
@@ -654,6 +655,11 @@ class BootstrapMixin:
             ])
             LIVE_PLUGIN_INSTANCES.add(self)
             self._live_instance_registered = True
+        self._agent_usage_patch_installed = install_agent_usage_capture(
+            lambda message: logger.info("%s", message),
+            should_capture=self._should_capture_agent_usage,
+            prepare_runner=self._prepare_phone_runner,
+        )
         # 语义索引维护放在设备相关初始化之前：假开启（未配置 ADB）时也按配置
         # 后台建索引；任务本身只读本地档案，不阻塞 initialize。
         self._start_semantic_maintenance()

@@ -119,7 +119,11 @@ class PhoneShareToUserTool(_PhoneToolBase):
                 "群聊/私聊的聊天内容，按对方喜好选一个群或最近有交流的用户再分享"
             )
         else:
-            target = str(getattr(event, "unified_msg_origin", "") or "").strip()
+            payload = event.get_extra("cron_payload") or {}
+            if self.service.task_origin(event) == "phone_background_task" and isinstance(payload, dict):
+                target = str(payload.get("share_target") or "").strip()
+            else:
+                target = str(getattr(event, "unified_msg_origin", "") or "").strip()
             if not target:
                 target = str(self.service.last_session() or "").strip()
             if not target:

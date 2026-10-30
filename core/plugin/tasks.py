@@ -181,6 +181,15 @@ _TASK_CLEANUP_PURPOSE = "task_cleanup"
 
 
 class TasksMixin:
+    def _prepare_phone_runner(self, runner: Any) -> None:
+        """在Agent执行前隔离当前请求工具，覆盖原生cron入口。"""
+        from ..subagent import route_request
+
+        event = getattr(getattr(runner.run_context, "context", None), "event", None)
+        req = getattr(runner, "req", None)
+        if event is not None and req is not None and check_admin_permission(event, self.service.config) is None:
+            route_request(self.service, event, req)
+
     def _background_task_submitted(self, event: Any) -> None:
         """委托成功后释放发起会话的手机占用，主任务继续执行。"""
         event.set_extra("phone_background_delegated", True)

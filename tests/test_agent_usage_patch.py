@@ -162,3 +162,36 @@ def test_first_phone_tool_round_is_quiet_even_without_keyword_marker(monkeypatch
         asyncio.run(run())
     finally:
         patch.uninstall_agent_usage_capture()
+
+
+def test_runner_preparation_covers_direct_cron_entry_and_updates_on_reload(monkeypatch):
+    """原生cron直接step时也在模型调用前准备工具；重载采用当前实例回调。"""
+    import asyncio
+    import sys
+    from types import SimpleNamespace
+
+    class Event:
+        def get_extra(self, key):
+            return None
+
+    class Runner:
+        def __init__(self):
+            self.run_context = SimpleNamespace(context=SimpleNamespace(event=Event()))
+            self.req = SimpleNamespace(prepared='')
+
+        async def step(self):
+            assert self.req.prepared
+            yield SimpleNamespace(type='tool_call', prepared=self.req.prepared)
+
+    monkeypatch.setitem(sys.modules, 'astrbot.core.agent.runners.tool_loop_agent_runner',
+                        SimpleNamespace(ToolLoopAgentRunner=Runner))
+    try:
+        assert patch.install_agent_usage_capture(prepare_runner=lambda runner: setattr(runner.req, 'prepared', 'first'))
+        async def invoke():
+            return [item.prepared async for item in Runner().step()]
+        assert asyncio.run(invoke()) == ['first']
+        assert patch.install_agent_usage_capture(prepare_runner=lambda runner: setattr(runner.req, 'prepared', 'current'))
+        assert asyncio.run(invoke()) == ['current']
+    finally:
+        patch.uninstall_agent_usage_capture()
+    assert not hasattr(Runner, patch.PREPARE_ATTR)

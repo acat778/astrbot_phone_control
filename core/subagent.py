@@ -51,7 +51,7 @@ def route_request(service: Any, event: Any, request: Any) -> bool:
     if not any(marker in str(getattr(p, 'text', p)) for p in parts):
         text = (
             '手机工作由当前独立Agent直接完成，按指令调用手机工具；不要再次委托。'
-            '结果只用phone_share_to_user发送到任务载荷share_target，切勿向cron会话发消息。'
+            '结果只用phone_share_to_user，target留空自动使用登记的share_target；切勿填写用户ID或cron会话。'
             if child else
             '当前为手机后台任务。结果通过phone_share_to_user按任务目标汇报；cron虚拟会话不能投递消息。'
             if synthetic else

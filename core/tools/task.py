@@ -11,6 +11,7 @@ from astrbot.core.agent.tool import ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
 from ..config import UNCONFIGURED_MESSAGE
+from ..share_policy import classify_session_umo
 from ..errors import AdbNotConfiguredError
 from ..scheduler import BackgroundTaskError, create_background_task, validate_background_instruction
 from .base import _PermissionDenied, _PhoneToolBase, _error, _event_of, _json_text, _wrap_call, check_admin_permission
@@ -58,6 +59,13 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
             return await self._manage(manager, action, str(kwargs.get('job_id') or ''), session, sender)
         if not config.adb.configured:
             raise AdbNotConfiguredError(UNCONFIGURED_MESSAGE)
+        target = str(kwargs.get('share_target') or '').strip() or session
+        target_error = (
+            self.service.validate_share_target(target) if target != session
+            else ('' if classify_session_umo(target) in {'user', 'group'} else '当前会话不是可投递的群聊或私聊')
+        )
+        if target_error:
+            return 'error: ' + target_error
         reason = self.service.background_start_guard(event)
         if reason:
             return reason if reason.startswith('error:') else 'error: ' + reason
@@ -68,7 +76,7 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
             instruction = validate_background_instruction(kwargs.get('instruction'))
             job = await create_background_task(
                 manager, instruction=instruction,
-                share_target=str(kwargs.get('share_target') or '').strip() or session,
+                share_target=target,
                 sender_id=sender, source_session=session,
                 work_as_subagent=config.model.work_as_subagent,
             )

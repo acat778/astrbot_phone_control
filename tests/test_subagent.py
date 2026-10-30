@@ -260,3 +260,51 @@ def test_synthetic_phone_agent_uses_real_delivery_tool(tmp_path, monkeypatch, pl
         finally:
             await _cleanup(plugin)
     asyncio.run(scenario())
+
+
+def test_native_runner_prepares_phone_toolset_without_request_hook(tmp_path, monkeypatch):
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        configure(plugin)
+        child = FakeEvent(platform='cron', payload={'cron_payload': {
+            'origin': 'phone_background_task', 'work_as_subagent': True,
+        }})
+        req = request(plugin)
+        send = copy.copy(plugin.context.tools[0]);send.name='send_message_to_user'
+        req.func_tool.add_tool(send)
+        try:
+            plugin._prepare_phone_runner(SimpleNamespace(req=req, run_context=FakeToolContext(child)))
+            names={t.name for t in req.func_tool.tools}
+            assert 'phone_tap' in names and 'phone_share_to_user' in names
+            assert not names & {'send_message_to_user','phone_start_background_task','other_task'}
+        finally:
+            await _cleanup(plugin)
+    asyncio.run(scenario())
+
+
+def test_background_share_uses_bound_session_without_model_target(tmp_path, monkeypatch):
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        tool=configure(plugin)
+        parent=FakeEvent()
+        sent=[]
+        async def send_message(session, chain):
+            sent.append((str(session),chain))
+            return True
+        monkeypatch.setattr(plugin.context,'send_message',send_message,raising=False)
+        try:
+            assert (await tool.call(FakeToolContext(parent),instruction='测试',share_target='astrbot')).startswith('error:')
+            assert not plugin.context.cron_manager.jobs
+            result=json.loads(await tool.call(FakeToolContext(parent),instruction='测试'))
+            job=plugin.context.cron_manager.jobs[result['job_id']]
+            child=FakeEvent(platform='cron',umo='cron:OtherMessage:'+job.job_id,
+                            payload={'cron_payload':job.payload})
+            share=next(t for t in plugin.context.tools if t.name=='phone_share_to_user')
+            ctx=FakeToolContext(child)
+            ctx.context.context=plugin.context
+            response=await share.call(ctx,text='测试结果',link='https://example.com/test')
+            assert '已分享' in response
+            assert sent[0][0]==parent.unified_msg_origin
+        finally:
+            await _cleanup(plugin)
+    asyncio.run(scenario())

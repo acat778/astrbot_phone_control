@@ -24,6 +24,7 @@ from typing import Any, Callable
 PATCH_FLAG = "_astrbot_phone_control_usage_patch"
 ORIGINAL_ATTR = "_astrbot_phone_control_original_step"
 USAGE_EXTRA = "phone_agent_usage"
+PREPARE_ATTR = "_astrbot_phone_control_prepare_runner"
 
 
 def _usage_payload(stats: Any, provider: Any = None) -> dict[str, Any] | None:
@@ -58,11 +59,13 @@ def _usage_payload(stats: Any, provider: Any = None) -> dict[str, Any] | None:
 def install_agent_usage_capture(
     logger: Callable[[str], None] | None = None,
     should_capture: Callable[[Any], bool] | None = None,
+    prepare_runner: Callable[[Any], None] | None = None,
 ) -> bool:
     """安装 AgentRunner 累计 usage 采集（幂等）；成功返回 True。
 
     Args:
         logger: 日志回调（可选）。
+        prepare_runner: 每次执行前准备当前请求，适用于原生cron与普通对话。
         should_capture: 判断某个事件是否采体的回调；默认只看
             ``phone_usage_tracked`` extra（普通对话路径）。cron 主动任务不经过
             pipeline 的 on_llm_request 钩子，需由插件注入按 cron payload origin
@@ -74,12 +77,17 @@ def install_agent_usage_capture(
         )
     except Exception:  # noqa: BLE001 - AstrBot 版本差异时静默降级为 DB 对账
         return False
+    if prepare_runner is not None:
+        setattr(ToolLoopAgentRunner, PREPARE_ATTR, prepare_runner)
     if getattr(ToolLoopAgentRunner, PATCH_FLAG, False):
         return True
     original = ToolLoopAgentRunner.step
     setattr(ToolLoopAgentRunner, ORIGINAL_ATTR, original)
 
     async def step_with_usage_capture(self: Any, *args: Any, **kwargs: Any):
+        prepare = getattr(ToolLoopAgentRunner, PREPARE_ATTR, None)
+        if prepare is not None:
+            prepare(self)
         generator = original(self, *args, **kwargs)
         event = getattr(getattr(self.run_context, "context", None), "event", None)
         buffer_output = bool(
@@ -161,4 +169,6 @@ def uninstall_agent_usage_capture() -> None:
         delattr(ToolLoopAgentRunner, ORIGINAL_ATTR)
     except AttributeError:
         pass
+    if hasattr(ToolLoopAgentRunner, PREPARE_ATTR):
+        delattr(ToolLoopAgentRunner, PREPARE_ATTR)
     setattr(ToolLoopAgentRunner, PATCH_FLAG, False)
