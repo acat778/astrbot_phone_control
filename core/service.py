@@ -357,6 +357,10 @@ class PhoneService:
 
     def should_yield_to_user(self, event: Any) -> bool:
         """自主任务的这次工具调用是否应让路给用户手机任务。"""
+        from .subagent import is_user_subagent
+
+        if is_user_subagent(event):
+            return False
         try:
             origin = self.task_origin(event)
         except Exception:  # noqa: BLE001 - 鸭子类型事件

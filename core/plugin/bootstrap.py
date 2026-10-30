@@ -421,6 +421,9 @@ class BootstrapMixin:
             interactions=self.interactions,
             telemetry=self.telemetry,
         )
+        from ..subagent import BackgroundTaskRegistry
+
+        self.service.background_tasks = BackgroundTaskRegistry()
         self.service.app_context = self.context
         self.service.components = self._components
         self._tool_reports = ToolErrorReporter(
@@ -434,6 +437,11 @@ class BootstrapMixin:
         self.service.mesh = self._mesh
         self._mesh_task = None
         self.service.task_provider_hook = self._apply_task_provider_preference
+        self.service.background_submitted_hook = self._background_task_submitted
+        self.service.background_cancel_hook = self._abort_running_cron_event
+        self.service.background_start_guard = lambda event: self._device_blocking_reason(
+            event, "phone_start_background_task", True
+        )
         # 流媒体内容识别：设备播放音频采集（scrcpy 音频通道，按需启动独立 server）。
         self._media_capture = MediaAudioCapture(
             adb=self.adb,
@@ -594,6 +602,7 @@ class BootstrapMixin:
         self._continuous_missing_learn = False
         # 正在运行的插件任务 Agent 引用（umo -> (task, job_id, origin)），/phone stop 用。
         self._active_agent_tasks: dict[str, tuple[asyncio.Task, str, str]] = {}
+        self._background_agent_events: dict[str, Any] = {}
         self._register_tools()
         self._register_dashboard_apis()
         if initial.adb.configured:
@@ -829,6 +838,17 @@ class BootstrapMixin:
             except Exception:  # noqa: BLE001 - 还原失败不影响卸载
                 pass
             self._agent_usage_patch_installed = False
+        for job_id in self.service.background_tasks.active():
+            self.service.background_tasks.update(job_id, "cancelled")
+            manager = getattr(self.context, "cron_manager", None)
+            if manager is not None:
+                try:
+                    await manager.delete_job(job_id)
+                except Exception as exc:
+                    logger.warning("删除后台排程失败，已标记取消并继续回收Agent：%s", exc)
+        for _umo, (_task, job_id, origin) in list(self._active_agent_tasks.items()):
+            if origin == "phone_background_task":
+                await self._abort_running_cron_event(job_id)
         monitors = list(getattr(self, "_activity_window_tasks", ()))
         for monitor in monitors:
             monitor.cancel()

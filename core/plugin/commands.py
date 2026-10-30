@@ -674,6 +674,7 @@ class CommandsMixin:
             if not jobs:
                 logger.info("未找到指定任务 %s，继续收尾设备", job_id)
         for job in jobs:
+            self.service.background_tasks.update(str(job.get("job_id") or ""), "cancelled")
             stopped_runs += await self._abort_running_cron_event(
                 str(job.get("job_id") or "")
             )

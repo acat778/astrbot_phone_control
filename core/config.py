@@ -612,6 +612,7 @@ class TrafficSettings:
 class ModelSettings:
     """自主任务与媒体识别使用的模型供应商。"""
 
+    work_as_subagent: bool = False
     provider_id: str = ""
     asr_provider_id: str = ""
     video_provider_id: str = ""
@@ -1732,6 +1733,10 @@ class PhoneConfig:
 
         model_card = card("model")
         model = ModelSettings(
+            work_as_subagent=_as_bool(
+                _pick(model_card, source, "work_as_subagent"), False,
+                "model.work_as_subagent", warn_fn,
+            ),
             provider_id=_as_str(
                 _pick(model_card, source, "provider_id"),
                 "",

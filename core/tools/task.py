@@ -1,6 +1,8 @@
-"""后台任务工具：把多步任务转入静默后台执行。"""
+"""后台任务工具：提交独立手机Agent并查询、取消本人会话任务。"""
 
 from __future__ import annotations
+
+import inspect
 
 from pydantic import Field
 from pydantic.dataclasses import dataclass
@@ -10,51 +12,29 @@ from astrbot.core.astr_agent_context import AstrAgentContext
 
 from ..config import UNCONFIGURED_MESSAGE
 from ..errors import AdbNotConfiguredError
-from ..scheduler import (
-    BackgroundTaskError,
-    create_background_task,
-    validate_background_instruction,
-)
-
-from .base import (
-    _PermissionDenied,
-    _PhoneToolBase,
-    _error,
-    _event_of,
-    _wrap_call,
-    check_admin_permission,
-)
+from ..scheduler import BackgroundTaskError, create_background_task, validate_background_instruction
+from .base import _PermissionDenied, _PhoneToolBase, _error, _event_of, _json_text, _wrap_call, check_admin_permission
 
 
 @dataclass
 class PhoneStartBackgroundTaskTool(_PhoneToolBase):
-    """把多步手机任务转入静默后台执行，完成后主动汇报。"""
+    """手机Agent提交立即返回，任务在独立会话中执行。"""
 
-    name: str = "phone_start_background_task"
+    name: str = 'phone_start_background_task'
     description: str = (
-        "把用户委托的多步手机任务（答题、找内容、发帖、评论、整理等）转入静默后台执行，"
-        "避免在对话里逐步刷屏。instruction 用 1-500 字描述要做什么；share_target 可指定"
-        "汇报会话 UMO（留空用当前会话）。创建 run_once 主动任务后立即返回，不等待完成；"
-        "任务全程静默，完成后会用 phone_share_to_user 汇报。只有用户明确要求「现在/实时/"
-        "看着你操作」时才在前台做；工具循环期间也不要输出中间解说文字。"
+        '提交手机子Agent后台执行，立即返回job_id；主Agent继续主任务，无需等待。'
+        'action=start传instruction（1-500字），完成后向share_target（默认原会话）分享。'
+        'action=list/status/cancel查询或取消本人的当前会话任务；status/cancel须job_id。'
     )
-    parameters: dict = Field(
-        default_factory=lambda: {
-            "type": "object",
-            "properties": {
-                "instruction": {
-                    "type": "string",
-                    "description": "任务指令（1-500 字），例如「去 B 站看三个科技视频并总结」。",
-                },
-                "share_target": {
-                    "type": "string",
-                    "description": "完成后汇报的会话 UMO；留空用当前会话。",
-                    "default": "",
-                },
-            },
-            "required": ["instruction"],
-        }
-    )
+    parameters: dict = Field(default_factory=lambda: {
+        'type': 'object',
+        'properties': {
+            'action': {'type': 'string', 'enum': ['start', 'list', 'status', 'cancel'], 'default': 'start'},
+            'instruction': {'type': 'string', 'description': '完整手机指令，1-500字。'},
+            'share_target': {'type': 'string', 'description': '结果汇报会话UMO；留空使用原会话。', 'default': ''},
+            'job_id': {'type': 'string', 'description': '查询或取消时填写完整任务ID。'},
+        },
+    })
 
     @_wrap_call
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
@@ -63,33 +43,74 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
         denied = check_admin_permission(event, config)
         if denied:
             raise _PermissionDenied(denied)
+        action = str(kwargs.get('action') or 'start').strip().lower()
+        if action not in {'start', 'list', 'status', 'cancel'}:
+            return 'error: action只能是start/list/status/cancel'
+        if self.service.is_task_session(event):
+            return 'error: 当前已是独立手机任务，请直接完成指令；任务管理由发起会话执行。'
+        session = str(getattr(event, 'unified_msg_origin', '') or '')
+        sender = str(event.get_sender_id() or '')
+        manager = getattr(getattr(self.service, 'app_context', None), 'cron_manager', None)
+        if manager is None:
+            return 'error: cron管理器不可用，无法管理手机后台Agent'
+        await self._refresh(manager)
+        if action != 'start':
+            return await self._manage(manager, action, str(kwargs.get('job_id') or ''), session, sender)
         if not config.adb.configured:
             raise AdbNotConfiguredError(UNCONFIGURED_MESSAGE)
+        reason = self.service.background_start_guard(event)
+        if reason:
+            return reason if reason.startswith('error:') else 'error: ' + reason
+        registry = self.service.background_tasks
+        if config.model.work_as_subagent and registry.active():
+            return 'error: 已有后台手机任务进行中，请先查询或取消；同一手机串行执行。'
         try:
-            instruction = validate_background_instruction(
-                kwargs.get("instruction")
-            )
-        except BackgroundTaskError as exc:
-            return _error(exc)
-        share_target = str(kwargs.get("share_target") or "").strip() or str(
-            getattr(event, "unified_msg_origin", "") or ""
-        )
-        app_context = getattr(self.service, "app_context", None)
-        cron_manager = getattr(app_context, "cron_manager", None)
-        try:
+            instruction = validate_background_instruction(kwargs.get('instruction'))
             job = await create_background_task(
-                cron_manager,
-                instruction=instruction,
-                share_target=share_target,
-                sender_id=str(getattr(event, "get_sender_id", lambda: "")() or ""),
+                manager, instruction=instruction,
+                share_target=str(kwargs.get('share_target') or '').strip() or session,
+                sender_id=sender, source_session=session,
+                work_as_subagent=config.model.work_as_subagent,
             )
         except BackgroundTaskError as exc:
             return _error(exc)
+        registry.add(job, sender=sender, session=session)
+        await self.service.apply_task_provider(job)
+        submitted = getattr(self.service, 'background_submitted_hook', None)
+        if callable(submitted):
+            result = submitted(event)
+            if inspect.isawaitable(result):
+                await result
+        return _json_text({
+            'status': 'queued', 'job_id': str(job.job_id),
+            'message': '独立手机Agent已接单，主任务可继续；完成后汇报，无需等待或持续轮询。',
+        })
+
+    async def _refresh(self, manager):
+        ids = {str(j.job_id) for j in await manager.list_jobs('active_agent') or []}
+        registry = self.service.background_tasks
+        for job_id in registry.active():
+            if job_id not in ids:
+                registry.update(job_id, 'ended', '宿主任务已结束，未收到完成结果；请核对实际汇报。')
+
+    async def _manage(self, manager, action, job_id, session, sender):
+        registry = self.service.background_tasks
+        owned = registry.owned(sender, session)
+        if action == 'list':
+            return _json_text({'tasks': owned})
+        record = next((r for r in owned if r['job_id'] == job_id and job_id), None)
+        if record is None:
+            return 'error: 当前用户会话没有此后台手机任务，请核对完整job_id'
+        if action == 'status':
+            return _json_text(record)
+        if record['status'] not in {'queued', 'running'}:
+            return _json_text(record)
+        cancel = getattr(self.service, 'background_cancel_hook', None)
+        if not callable(cancel):
+            return 'error: 后台Agent取消接口未就绪'
+        registry.update(job_id, 'cancelled')
         try:
-            await self.service.apply_task_provider(job)
-        except Exception:  # noqa: BLE001 - 供应商应用失败不影响任务创建
-            pass
-        return (
-            f"已转入后台执行（job {getattr(job, 'job_id', '?')}，静默运行），"
-            "完成后会通过分享汇报到当前会话，无需等待；可用 /phone tasks 查看。"
-        )
+            await manager.delete_job(job_id)
+        finally:
+            await cancel(job_id)
+        return _json_text({'job_id': job_id, 'status': 'cancelled'})

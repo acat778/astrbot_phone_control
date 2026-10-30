@@ -120,6 +120,7 @@ LIVE_KEYS: frozenset[str] = frozenset(
         "auto.random_windows",
         "auto.continuous_windows",
         "auto.user_priority",
+        "model.work_as_subagent",
         "model.provider_id",
         "model.asr_provider_id",
         "model.video_provider_id",

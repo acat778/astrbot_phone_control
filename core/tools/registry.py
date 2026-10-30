@@ -142,7 +142,7 @@ _TOOL_DESC_COMPACT: dict[str, str] = {
         "记录互动结果（like/favorite/comment/passive_reply/post）：成功计次，失败释放名额；"
         "summary≤120 字；只做流程记账，不是底层动作拦截。"
     ),
-    "phone_start_background_task": "把多步任务转静默后台执行，完成后主动汇报。",
+    "phone_start_background_task": "手机子Agent后台执行立即返回；action=start/list/status/cancel，查询或取消填job_id。",
     "phone_live_screen": "看实时屏幕最新帧（age/前台），可回传图片；页面内容优先 phone_screen。",
     "phone_read_screen": "OCR 识别实时屏幕文字/验证码，返回文本与帧信息；页面内容优先 phone_screen。",
     "phone_solve_verification": (

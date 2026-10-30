@@ -514,6 +514,14 @@ def _wrap_call(handler):
         except Exception:  # noqa: BLE001 - 缺少事件时交给 handler 统一报错
             event = None
         gate = getattr(self.service, "gate", None)
+        if self.name == "phone_start_background_task":
+            gate = None
+        elif event is not None:
+            from ..subagent import foreground_delegates
+
+            if foreground_delegates(self.service, event):
+                denied = check_admin_permission(event, self.service.config)
+                return denied or "error: 手机工作已设为后台子Agent，请用 phone_start_background_task 提交任务。"
         try:
             if gate is not None and event is not None:
                 with gate.scope(

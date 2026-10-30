@@ -273,6 +273,12 @@
     "description": "任务与媒体模型",
     "hint": "选择任务、图片、视频、语音与 App 经验向量模型；聊天记忆向量模型在记忆存储中设置。",
     "items": {
+      "work_as_subagent": {
+        "type": "bool",
+        "default": false,
+        "description": "Work as subagent（后台手机代理）",
+        "hint": "开启后，普通对话中的手机工作交给独立会话Agent后台执行，主Agent可继续聊天和其他任务。使用本组任务模型，任务ID可查询或取消；完成后向原会话汇报。关闭时主Agent可直接使用手机工具。"
+      },
       "provider_id": {
         "type": "string",
         "default": "",

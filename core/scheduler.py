@@ -75,6 +75,8 @@ async def create_background_task(
     instruction: Any,
     share_target: Any = "",
     sender_id: str = "",
+    source_session: str = "",
+    work_as_subagent: bool = False,
 ) -> Any:
     """创建静默 run_once 主动任务（session 为空 = 不投递过程消息）。"""
     if cron_manager is None:
@@ -88,6 +90,9 @@ async def create_background_task(
         "origin": BACKGROUND_JOB_ORIGIN,
         "share_target": target,
         "requested_by": str(sender_id or "").strip(),
+        "sender_id": str(sender_id or "").strip(),
+        "source_session": str(source_session or target).strip(),
+        "work_as_subagent": bool(work_as_subagent),
     }
     try:
         return await cron_manager.add_active_job(

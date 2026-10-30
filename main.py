@@ -311,6 +311,8 @@ class PhoneControlPlugin(
             name = str(getattr(tool, "name", "") or "")
             if not name.startswith("phone_"):
                 return
+            if name == "phone_start_background_task":
+                return
             if not self.service.is_task_session(event):
                 # 用户会话里调用手机工具（即使消息没命中关键词）也视为用户手机任务。
                 await self._enter_user_priority(event)
@@ -458,6 +460,14 @@ class PhoneControlPlugin(
         run_context: Any = None,
     ) -> None:
         """记录插件任务 Agent 的运行 task，供 /phone stop 取消。"""
+        payload = event.get_extra("cron_payload") or {}
+        if isinstance(payload, dict) and payload.get("work_as_subagent"):
+            job_id = str((event.get_extra("cron_job") or {}).get("id") or "")
+            record = self.service.background_tasks.records.get(job_id)
+            if self._terminated or record is None or record["status"] == "cancelled":
+                raise asyncio.CancelledError("后台手机任务已取消或所属插件实例已关闭")
+            await self._enter_user_priority(event)
+            self.service.background_tasks.update(job_id, "running")
         if not self.service.activity_allowed(event):
             raise asyncio.CancelledError("自主模式已关闭或当前不在允许时间段内")
         try:
@@ -488,6 +498,8 @@ class PhoneControlPlugin(
             umo = str(getattr(event, "unified_msg_origin", "") or "")
             if umo:
                 self._active_agent_tasks[umo] = (task, job_id, origin)
+                if origin == "phone_background_task":
+                    self._background_agent_events[umo] = event
                 self._track_activity_window(event, task)
         except Exception:  # noqa: BLE001 - 记录失败不影响任务
             pass
@@ -501,12 +513,18 @@ class PhoneControlPlugin(
     ) -> None:
         """Agent 结束：任务会话停止实时屏幕；玩过手机则确定性收尾。"""
         managed_activity = self.service.task_origin(event) in {
-            "phone_random_play", CONTINUOUS_JOB_ORIGIN, AUTO_BROWSE_JOB_ORIGIN,
+            "phone_random_play", "phone_background_task", CONTINUOUS_JOB_ORIGIN, AUTO_BROWSE_JOB_ORIGIN,
         }
         if managed_activity:
             if event.get_extra("phone_activity_cleanup_done"):
                 return
             event.set_extra("phone_activity_cleanup_done", True)
+        if self.service.task_origin(event) == "phone_background_task":
+            job_id = str((event.get_extra("cron_job") or {}).get("id") or "")
+            running = self._active_agent_tasks.get(str(event.unified_msg_origin))
+            cancelled = bool(running and running[0].cancelled())
+            status = "cancelled" if cancelled else ("completed" if response is not None else "ended")
+            self.service.background_tasks.update(job_id, status, str(getattr(response, "completion_text", "") or ""))
         try:
             from .core.interactions import RUN_EXTRA
 
@@ -518,6 +536,7 @@ class PhoneControlPlugin(
                 logger.error("释放本轮互动预约失败：%s", exc)
             umo = str(getattr(event, "unified_msg_origin", "") or "")
             self._active_agent_tasks.pop(umo, None)
+            self._background_agent_events.pop(umo, None)
             if hasattr(self.service, "_contents"):
                 await self.service.contents.finish_owner(self.service.contents.owner(event), abnormal=False)
             # 先释放本 run 的设备租约，后续收尾/恢复调度才能看到真实占用。
@@ -584,6 +603,10 @@ class PhoneControlPlugin(
             except Exception:  # noqa: BLE001 - 权限判定异常按未授权处理
                 authorized = False
             event.set_extra("phone_output_candidate", bool(authorized and config.adb.configured))
+            from .core.subagent import route_request
+
+            if authorized and route_request(self.service, event, req):
+                return
             is_task = self.service.is_task_session(event)
             looks_like_phone = self._looks_like_phone_request(event, req)
             event.set_extra("phone_quiet_run", bool(authorized and (is_task or looks_like_phone)))
@@ -602,7 +625,12 @@ class PhoneControlPlugin(
                 return
             if not authorized:
                 return
-            sections = [_build_guidance(config)]
+            guidance = _build_guidance(config)
+            if is_task:
+                guidance = guidance.replace(
+                    "多步任务先 phone_start_background_task；", "当前手机任务直接完成；"
+                )
+            sections = [guidance]
             # 浏览日志/学习档案/App 经验/新鲜感/验证状态属于手机活动记忆，
             # 只在手机任务或明确的手机请求里注入，普通对话不扩大上下文。
             if is_task or looks_like_phone:

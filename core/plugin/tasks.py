@@ -181,6 +181,12 @@ _TASK_CLEANUP_PURPOSE = "task_cleanup"
 
 
 class TasksMixin:
+    def _background_task_submitted(self, event: Any) -> None:
+        """委托成功后释放发起会话的手机占用，主任务继续执行。"""
+        event.set_extra("phone_background_delegated", True)
+        self.device_gate.release_event(event)
+        self._exit_user_priority(event)
+
     async def _apply_auto_config_when_ready(self) -> None:
         """等待 cron 管理器就绪后按配置创建任务（最多重试约 10 秒）。"""
         for attempt in range(20):
@@ -254,6 +260,10 @@ class TasksMixin:
         return float("inf")
 
     def _device_is_autonomous(self, event: Any) -> bool:
+        from ..subagent import is_user_subagent
+
+        if is_user_subagent(event):
+            return False
         try:
             return bool(self.service.task_origin(event))
         except Exception:  # noqa: BLE001 - 鸭子类型事件
@@ -301,6 +311,8 @@ class TasksMixin:
         if not job_id:
             return 0
         stopped = 0
+        cancelled = []
+        events = []
         for umo, (task, running_job_id, _origin) in list(
             self._active_agent_tasks.items()
         ):
@@ -311,9 +323,18 @@ class TasksMixin:
             if task.done():
                 self._active_agent_tasks.pop(umo, None)
                 continue
+            self.service.background_tasks.update(running_job_id, "cancelled")
             task.cancel()
+            cancelled.append(task)
+            event = self._background_agent_events.get(umo)
+            if event is not None:
+                events.append(event)
             self._active_agent_tasks.pop(umo, None)
             stopped += 1
+        if cancelled:
+            await asyncio.gather(*cancelled, return_exceptions=True)
+            for event in events:
+                await self.on_task_agent_done(event)
         try:
             from astrbot.core.utils.active_event_registry import (
                 active_event_registry,
@@ -330,6 +351,8 @@ class TasksMixin:
     def _looks_like_user_phone_request(self, event: AstrMessageEvent) -> bool:
         """判断用户消息是否在请求手机相关任务（用于抢占自刷）。"""
         try:
+            if event.get_extra("phone_background_delegated"):
+                return False
             if not self._config().auto.user_priority:
                 return False
             if self.service.task_origin(event):
@@ -540,7 +563,7 @@ class TasksMixin:
                 await self.on_task_agent_done(event)
 
     def _track_activity_window(self, event, task) -> None:
-        if self.service.task_origin(event) not in {*WINDOW_ORIGINS, AUTO_BROWSE_JOB_ORIGIN}:
+        if self.service.task_origin(event) not in {*WINDOW_ORIGINS, AUTO_BROWSE_JOB_ORIGIN, "phone_background_task"}:
             return
         monitors = self._activity_window_tasks
         monitor = asyncio.create_task(self._watch_activity_window(event, task))
