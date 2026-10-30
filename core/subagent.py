@@ -27,6 +27,10 @@ def route_request(service: Any, event: Any, request: Any) -> bool:
     synthetic = service.is_task_session(event) and event.get_platform_name() == 'cron'
     if not child and not delegate and not synthetic:
         return False
+    if delegate:
+        event.set_extra('phone_output_candidate', False)
+        event.set_extra('phone_quiet_run', False)
+        event.set_extra('phone_shared_current_run', False)
     tool_set = getattr(request, 'func_tool', None)
     if tool_set is not None:
         tools = list(tool_set.tools)

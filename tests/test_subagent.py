@@ -60,6 +60,8 @@ def test_route_only_replaces_current_request_tools(tmp_path, monkeypatch, enable
             assert 'phone_start_background_task' in names and 'other_task' in names
             assert any(t.name == 'phone_tap' for t in original.tools)
             if enabled:
+                assert not event.get_extra("phone_output_candidate")
+                assert not event.get_extra("phone_quiet_run")
                 assert not plugin.service.user_priority.active
                 assert not plugin.device_gate.busy
                 assert req.func_tool is not original
