@@ -435,6 +435,21 @@ class PhoneInputTextTool(_PhoneToolBase):
         if replace:
             await self.service.actions.clear_text()
         await self.service.input_text(text, press_enter=False)
+        try:
+            verified = await self._verify_input(text, replace)
+        except UiDumpError as exc:
+            return (
+                f"文字输入操作已执行，但 UI 核验失败（{exc}），当前输入值未确认；本次未回车。"
+                '请先用 phone_screen(mode="image") 核对输入框内容，确认前不要重复输入或提交。'
+            )
+        if not verified:
+            return "文字输入命令已执行，但实际输入值未确认；先看当前截图核对聚焦和关键词，再提交搜索。"
+        if press_enter:
+            await self.service.press_key("enter")
+        return _ok(f"已核对输入关键词（{len(text)} 字）" + ("并回车；请核对搜索结果" if press_enter else "；按当前 App 的按钮或回车逻辑提交"))
+
+    async def _verify_input(self, text: str, replace: bool) -> bool:
+        """核验输入；可读节点确认不匹配时重新聚焦并按原语义重试一次。"""
         _rendered, snapshot = await self.service.screen()
         verified = self._verified(snapshot, text, replace)
         if not verified:
@@ -457,11 +472,7 @@ class PhoneInputTextTool(_PhoneToolBase):
             await self.service.input_text(text, press_enter=False)
             _rendered, snapshot = await self.service.screen()
             verified = self._verified(snapshot, text, replace)
-        if not verified:
-            return "文字输入命令已执行，但实际输入值未确认；先看当前截图核对聚焦和关键词，再提交搜索。"
-        if press_enter:
-            await self.service.press_key("enter")
-        return _ok(f"已核对输入关键词（{len(text)} 字）" + ("并回车；请核对搜索结果" if press_enter else "；按当前 App 的按钮或回车逻辑提交"))
+        return verified
 
 
 @dataclass
