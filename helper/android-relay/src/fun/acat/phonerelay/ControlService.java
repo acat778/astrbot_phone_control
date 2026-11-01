@@ -272,7 +272,8 @@ public final class ControlService extends Service {
                 if (message.getString("op").equals("foreground") || message.getString("op").equals("shell") || message.getString("op").equals("nodes") || message.getString("op").equals("input"))
                     data.put("video_generation",local.videoGeneration());
                 for (Iterator<String> keys = data.keys(); keys.hasNext();) { String key = keys.next(); result.put(key, data.get(key)); }
-            } catch (Exception e) { result.put("error", e.getMessage() == null ? "本机 ADB 请求失败" : e.getMessage()); }
+                result.put("rpc_ok", true);
+            } catch (Exception e) { result.put("rpc_ok", false).put("error", e.getMessage() == null ? "本机 ADB 请求失败" : e.getMessage()); }
             finally { if (expiry != null) expiry.cancel(false); jobs.remove(id); }
             if (requestSession.equals(session) && !Thread.currentThread().isInterrupted()) send(result);
             return null;

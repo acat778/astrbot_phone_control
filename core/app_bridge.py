@@ -389,9 +389,11 @@ class AppBridge:
                     )
                 await asyncio.wait({future}, timeout=min(0.1, remaining))
             result = future.result()
-            if result.get("error"):
+            if result.get("rpc_ok") is False or (
+                result.get("error") and result.get("rpc_ok") is not True
+            ):
                 raise ActionFailedError(
-                    "App 操作失败", detail=str(result["error"])[:500]
+                    "App 操作失败", detail=str(result.get("error") or "手机未提供失败详情")[:500]
                 )
             return result
         finally:

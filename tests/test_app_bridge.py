@@ -9,6 +9,64 @@ from core.app_adb import AppAdbClient
 from core.errors import ActionFailedError, DeviceOfflineError
 
 
+def test_authenticated_traffic_status_preserves_tls_diagnostic_without_rpc_failure(tmp_path):
+    import ssl
+    from core.app_traffic import AppTrafficCapture
+
+    async def run():
+        bridge = AppBridge(tmp_path, tmp_path / "app.apk")
+        await bridge.start(0)
+        ctx = ssl.create_default_context(cafile=str(tmp_path / "server.pem"))
+        ctx.check_hostname = False
+        reader, writer = await asyncio.open_connection("127.0.0.1", bridge.port, ssl=ctx)
+        try:
+            await bridge.send(writer, {"v": 1, "token": bridge._state["token"], "device_id": "capture-status"})
+            await bridge.read(reader)
+            config = PhoneConfig.from_mapping({"adb": {"mode": "app"}, "traffic": {"provider": "app", "ca_mode": "manual"}})
+            capture = AppTrafficCapture(adb=None, bridge=bridge, data_dir=tmp_path, settings_provider=lambda: config.traffic)
+            capture._active = True
+            capture._session_id = bridge.session
+            capture._capture_id = "a" * 32
+            diagnostic = "SSLHandshakeException: SSLV3_ALERT_CERTIFICATE_UNKNOWN"
+            for _ in range(2):
+                pending = asyncio.create_task(capture.ensure_device())
+                request = await asyncio.wait_for(bridge.read(reader), 2)
+                assert request["op"] == "traffic_status"
+                await bridge.send(writer, {"type": "result", "id": request["id"], "rpc_ok": True, "running": True,
+                                           "capture_id": capture._capture_id, "failures": 3, "dropped": 1, "error": diagnostic})
+                await asyncio.wait_for(pending, 2)
+                status = capture.status()
+                assert status["running"] and status["error"] == diagnostic
+                assert status["failures"] == 3 and status["dropped"] == 1
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            await bridge.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("response", [{"rpc_ok": False, "error": "ADB disconnected"}, {"error": "ADB disconnected"},
+                                     {"rpc_ok": "true", "error": "ADB disconnected"}, {"rpc_ok": False}])
+def test_rpc_failure_is_reported_once_and_never_replayed(tmp_path, response):
+    async def run():
+        bridge = AppBridge(tmp_path, tmp_path / "app.apk")
+        bridge.writer = object()
+        sent = []
+
+        async def send(writer, request):
+            sent.append(request)
+            bridge.pending[request["id"]].set_result(response)
+
+        bridge.send = send
+        with pytest.raises(ActionFailedError, match="App 操作失败"):
+            await bridge.call("shell", command="input tap 1 1")
+        assert len(sent) == 1 and sent[0]["op"] == "shell"
+        assert not bridge.pending
+
+    asyncio.run(run())
+
+
 def test_existing_adb_defaults_and_hidden_values():
     direct = PhoneConfig.from_mapping({"adb": {"host": "device", "port": 5555}})
     app = PhoneConfig.from_mapping(
