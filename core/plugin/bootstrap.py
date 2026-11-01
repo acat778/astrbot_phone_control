@@ -301,13 +301,18 @@ class BootstrapMixin:
         autonomy_changed = migrate_autonomy(self.raw_config)
         from ..flexibility import migrate_flexibility
         flexibility_changed = migrate_flexibility(self.raw_config)
-        from ..model_config import migrate_models, populate_embedding_options
+        from ..model_config import (
+            migrate_models,
+            populate_embedding_options,
+            populate_failover_options,
+        )
 
         if migrate_models(self.raw_config) or flexibility_changed or autonomy_changed:
             save = getattr(self.raw_config, "save_config", None)
             if callable(save):
                 save()
         populate_embedding_options(self.raw_config, context)
+        populate_failover_options(self.raw_config, context)
         from ..app_traffic import populate_capture_options
         populate_capture_options(self.raw_config)
         from ..app_schema import populate_connection_options
@@ -426,6 +431,9 @@ class BootstrapMixin:
 
         self.service.background_tasks = BackgroundTaskRegistry()
         self.service.app_context = self.context
+        from ..failover_adapter import manager_for
+
+        self.service.model_failover = manager_for(self.service)
         self.service.components = self._components
         self._tool_reports = ToolErrorReporter(
             settings=lambda: self.service.config.report,
@@ -508,7 +516,9 @@ class BootstrapMixin:
         # 聊天语义找回：本地向量索引 + 后台维护。读路径只持有索引/Provider/配置，
         # 不持有 service，普通聊天因此不会触碰 ADB、设备或手机后台任务。
         self.semantic_index = SemanticIndex(self.data_dir / "semantic")
-        self.semantic_resolver = SemanticEmbeddingResolver(self.context)
+        self.semantic_resolver = SemanticEmbeddingResolver(
+            self.context, failover=self.service.model_failover, slot="embedding"
+        )
         self.semantic_reader = SemanticReader(
             self.semantic_index,
             self.semantic_resolver,
@@ -528,6 +538,8 @@ class BootstrapMixin:
             self.context,
             label="App 经验召回",
             config_key="prompt.app_memory_embedding_provider_id",
+            failover=self.service.model_failover,
+            slot="app_embedding",
         )
         self.app_recall_reader = AppRecallReader(
             index=self.app_recall_index,
@@ -545,6 +557,20 @@ class BootstrapMixin:
             self.app_recall_maintainer.request_refresh
         )
         self.service.app_recall_reader = self.app_recall_reader
+
+        def model_changed(slot):
+            maintainer = (
+                self.semantic_maintainer
+                if slot == "embedding"
+                else self.app_recall_maintainer
+                if slot == "app_embedding"
+                else None
+            )
+            if maintainer is not None:
+                maintainer._retry_at = 0
+                maintainer.request_refresh()
+
+        self.service.model_failover.on_change = model_changed
         self._app_recall_task: asyncio.Task | None = None
         # 插件加载时立即按配置清理一次残留截图（可能已占 GB 级磁盘）。
         try:
@@ -662,6 +688,7 @@ class BootstrapMixin:
         )
         # 语义索引维护放在设备相关初始化之前：假开启（未配置 ADB）时也按配置
         # 后台建索引；任务本身只读本地档案，不阻塞 initialize。
+        self.service.model_failover.start()
         self._start_semantic_maintenance()
         self._start_app_recall_maintenance()
         # 浏览日志上限清理不访问设备：假开启与启用状态都要在启动时执行一次。
@@ -800,6 +827,9 @@ class BootstrapMixin:
 
     async def _terminate_impl(self) -> None:
         """终止流程实现：取消后台任务、恢复设备状态并关闭资源。"""
+        manager = getattr(self.service, "model_failover", None)
+        if manager is not None:
+            await manager.close()
         # 语义索引维护只读写插件数据目录：先取消，避免停用过程中继续后台构建。
         maintainer = getattr(self, "semantic_maintainer", None)
         self._semantic_task = None

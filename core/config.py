@@ -16,6 +16,7 @@ ADB 主机/端口默认为空，表示「未配置」：插件仍可正常加载
 
 from __future__ import annotations
 
+from .model_failover import FailoverPolicy
 from .flexibility import FlexibilitySettings
 from .mesh_config import MeshSettings, mesh_settings
 from .tool_reports import ReportSettings
@@ -548,6 +549,7 @@ class MemorySettings:
     livingmemory_enabled: bool = False
     companion_user_id: str = DEFAULT_MEMORY_COMPANION_USER_ID
     bot_action_enabled: bool = False
+    embedding_failover: FailoverPolicy = field(default_factory=FailoverPolicy)
 
     @property
     def backend(self) -> str:
@@ -617,6 +619,11 @@ class ModelSettings:
     asr_provider_id: str = ""
     video_provider_id: str = ""
     video_audio_separate: bool = False
+    task_failover: FailoverPolicy = field(default_factory=FailoverPolicy)
+    vision_failover: FailoverPolicy = field(default_factory=FailoverPolicy)
+    video_failover: FailoverPolicy = field(default_factory=FailoverPolicy)
+    asr_failover: FailoverPolicy = field(default_factory=FailoverPolicy)
+    app_embedding_failover: FailoverPolicy = field(default_factory=FailoverPolicy)
 
 
 @dataclass(frozen=True)
@@ -1709,6 +1716,9 @@ class PhoneConfig:
             companion_enabled = legacy_companion
             livingmemory_enabled = legacy_livingmemory
         memory = MemorySettings(
+            embedding_failover=FailoverPolicy.parse(
+                (memory_card or {}).get("embedding_failover")
+            ),
             local_enabled=_as_bool(
                 _pick(memory_card, source, "local_enabled"),
                 DEFAULT_MEMORY_LOCAL_ENABLED,
@@ -1733,9 +1743,22 @@ class PhoneConfig:
 
         model_card = card("model")
         model = ModelSettings(
+            task_failover=FailoverPolicy.parse((model_card or {}).get("task_failover")),
+            vision_failover=FailoverPolicy.parse(
+                (model_card or {}).get("vision_failover")
+            ),
+            video_failover=FailoverPolicy.parse(
+                (model_card or {}).get("video_failover")
+            ),
+            asr_failover=FailoverPolicy.parse((model_card or {}).get("asr_failover")),
+            app_embedding_failover=FailoverPolicy.parse(
+                (model_card or {}).get("app_embedding_failover")
+            ),
             work_as_subagent=_as_bool(
-                _pick(model_card, source, "work_as_subagent"), False,
-                "model.work_as_subagent", warn_fn,
+                _pick(model_card, source, "work_as_subagent"),
+                False,
+                "model.work_as_subagent",
+                warn_fn,
             ),
             provider_id=_as_str(
                 _pick(model_card, source, "provider_id"),
@@ -1744,16 +1767,23 @@ class PhoneConfig:
                 warn_fn,
             ),
             asr_provider_id=_as_str(
-                _pick(model_card, source, "asr_provider_id") or _pick(media_card, source, "asr_provider_id"),
+                _pick(model_card, source, "asr_provider_id")
+                or _pick(media_card, source, "asr_provider_id"),
                 "",
                 "model.asr_provider_id",
                 warn_fn,
             ),
             video_provider_id=_as_str(
-                _pick(model_card, source, "video_provider_id"), "", "model.video_provider_id", warn_fn,
+                _pick(model_card, source, "video_provider_id"),
+                "",
+                "model.video_provider_id",
+                warn_fn,
             ),
             video_audio_separate=_as_bool(
-                _pick(model_card, source, "video_audio_separate"), False, "model.video_audio_separate", warn_fn,
+                _pick(model_card, source, "video_audio_separate"),
+                False,
+                "model.video_audio_separate",
+                warn_fn,
             ),
         )
 

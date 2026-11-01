@@ -30,6 +30,7 @@ from .app_memory import (
     _clip,
     _format_time,
 )
+from .failover_adapter import EmbeddingModelChanged
 from .identity import PLUGIN_NAME
 from .semantic import (
     DEFAULT_DOC_CHARS,
@@ -330,7 +331,11 @@ class AppRecallReader:
             return None
         signature = (stat.st_mtime_ns, stat.st_size, stat.st_ino)
         cached = self._cache
-        if cached is not None and cached[0] == signature:
+        if (
+            cached is not None
+            and cached[0] == signature
+            and cached[1].provider_key == provider.key
+        ):
             return cached[1]
         try:
             snapshot = self._index.load_snapshot(provider_key=provider.key)
@@ -438,7 +443,16 @@ class AppRecallMaintainer:
     async def refresh(self, *, force: bool = False) -> bool:
         """执行一次索引刷新；失败不抛出，旧索引继续可用。"""
         async with self._lock:
-            return await self._refresh_locked(force=force)
+            manager = getattr(self._resolver, "_failover", None)
+            slot = getattr(self._resolver, "_slot", "embedding")
+            policy = manager.policy(slot) if manager else None
+            attempts = 1 + len(manager.candidates(slot, "")) if policy else 1
+            for _ in range(attempts):
+                try:
+                    return await self._refresh_locked(force=force)
+                except EmbeddingModelChanged:
+                    force = True
+            return False
 
     async def _refresh_locked(self, *, force: bool) -> bool:
         try:
@@ -471,6 +485,8 @@ class AppRecallMaintainer:
             )
         except asyncio.CancelledError:
             raise
+        except EmbeddingModelChanged:
+            raise
         except Exception as exc:  # noqa: BLE001 - 构建失败保留旧索引并退避
             self._record_failure(exc)
             return False
@@ -487,7 +503,10 @@ class AppRecallMaintainer:
         raw_provider = provider.provider
         get_many = getattr(raw_provider, "get_embeddings", None)
         if callable(get_many):
-            result = await asyncio.wait_for(get_many(list(texts)), timeout=120.0)
+            result = await asyncio.wait_for(
+                get_many(list(texts)),
+                timeout=getattr(raw_provider, "batch_timeout", 120.0),
+            )
             return list(result or [])
         get_one = getattr(raw_provider, "get_embedding", None)
         if not callable(get_one):

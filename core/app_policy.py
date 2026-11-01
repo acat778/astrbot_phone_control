@@ -1,5 +1,7 @@
 """应用启动前按安装元数据进行模型分类，金融应用与未确认应用拒绝启动。"""
 
+from .failover_adapter import generate
+
 import asyncio
 import hashlib
 import json
@@ -102,9 +104,12 @@ class AppPolicy:
                     '{"category":"finance|social|media|game|shopping|tools|system|other|unknown","confidence":0到1,"reason":"中文简短依据"}。\n'
                     + identity
                 )
-                response = await asyncio.wait_for(
-                    context.llm_generate(chat_provider_id=provider_id, prompt=prompt),
-                    30,
+                response = await generate(
+                    service,
+                    "task",
+                    timeout=30,
+                    chat_provider_id=provider_id,
+                    prompt=prompt,
                 )
                 text = str(getattr(response, "completion_text", "") or "").strip()
                 service.record_internal_usage(

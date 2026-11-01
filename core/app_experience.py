@@ -7,6 +7,8 @@ App 操控经验只保存在插件数据目录，不再写 AstrBot 知识库，�
 
 from __future__ import annotations
 
+from .failover_adapter import generate
+
 import asyncio
 import hashlib
 import json
@@ -216,11 +218,12 @@ class AppExperience:
                 "不写密码、验证码、坐标猜测和未验证路径。无可复用经验返回{}。只返回JSON，字段app(包名或App名),page,note(500字内),steps(字符串数组)。\n"
                 + json.dumps(state["pairs"], ensure_ascii=False)
             )
-            response = await asyncio.wait_for(
-                self.service.app_context.llm_generate(
-                    chat_provider_id=provider_id, prompt=prompt
-                ),
-                60,
+            response = await generate(
+                self.service,
+                "vision",
+                timeout=60,
+                chat_provider_id=provider_id,
+                prompt=prompt,
             )
             text = str(getattr(response, "completion_text", "") or "").strip()
             self.service.record_internal_usage(

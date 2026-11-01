@@ -25,6 +25,7 @@ from typing import Any, Callable
 
 from astrbot.api import logger
 
+from .failover_adapter import EmbeddingModelChanged
 from .identity import PLUGIN_NAME
 from .semantic import (
     DEFAULT_DOC_CHARS,
@@ -151,8 +152,11 @@ class SemanticEmbeddingResolver:
         *,
         label: str = "语义找回",
         config_key: str = "recall.embedding_provider_id",
+        failover=None,
+        slot="embedding",
     ) -> None:
         self._context = context
+        self._failover, self._slot = failover, slot
         self._label = str(label or "语义找回")
         self._config_key = str(config_key or "recall.embedding_provider_id")
         self._cached_request: str | None = None
@@ -168,6 +172,30 @@ class SemanticEmbeddingResolver:
     def resolve(self, provider_id: str = "") -> ResolvedEmbedding | None:
         """解析 Provider；不可用时返回 None（并记录一次可诊断的 warning）。"""
         requested = str(provider_id or "").strip()
+        if (
+            self._failover is not None
+            and self._failover.policy(self._slot).mode != "disabled"
+        ):
+            from .failover_adapter import PinnedEmbedding
+
+            original = self._resolve_uncached(requested)
+            primary = requested or (original.provider_id if original else "")
+            chosen = self._failover.current(self._slot, primary)
+            resolved = self._resolve_uncached(chosen) if chosen else original
+            if resolved is None:
+                # 缺失主模型也允许尝试已选备用；身份先固定为第一个有效候选。
+                for candidate in self._failover.candidates(self._slot, primary)[1:]:
+                    resolved = self._resolve_uncached(candidate)
+                    if resolved is not None:
+                        break
+            if resolved is None:
+                return None
+            return ResolvedEmbedding(
+                PinnedEmbedding(self._failover, self._slot, primary, resolved.provider),
+                resolved.provider_id,
+                resolved.model,
+                resolved.dim,
+            )
         if self._cached_request == requested:
             return self._cached
         resolved = self._resolve_uncached(requested)
@@ -579,7 +607,16 @@ class SemanticMaintainer:
     async def refresh(self, *, force: bool = False) -> bool:
         """执行一次索引刷新；返回是否成功（失败不抛出，旧索引保留可用）。"""
         async with self._lock:
-            return await self._refresh_locked(force=force)
+            manager = getattr(self._resolver, "_failover", None)
+            slot = getattr(self._resolver, "_slot", "embedding")
+            policy = manager.policy(slot) if manager else None
+            attempts = 1 + len(manager.candidates(slot, "")) if policy else 1
+            for _ in range(attempts):
+                try:
+                    return await self._refresh_locked(force=force)
+                except EmbeddingModelChanged:
+                    force = True
+            return False
 
     async def _refresh_locked(self, *, force: bool) -> bool:
         try:
@@ -625,6 +662,8 @@ class SemanticMaintainer:
             )
         except asyncio.CancelledError:
             raise
+        except EmbeddingModelChanged:
+            raise
         except Exception as exc:  # noqa: BLE001 - 构建失败保留旧索引并退避
             self._record_failure(exc)
             return False
@@ -639,7 +678,10 @@ class SemanticMaintainer:
         get_many = getattr(raw_provider, "get_embeddings", None)
         if callable(get_many):
             result = await asyncio.wait_for(
-                get_many(list(texts)), timeout=BUILD_EMBED_TIMEOUT_SECONDS
+                get_many(list(texts)),
+                timeout=getattr(
+                    raw_provider, "batch_timeout", BUILD_EMBED_TIMEOUT_SECONDS
+                ),
             )
             return list(result or [])
         get_one = getattr(raw_provider, "get_embedding", None)

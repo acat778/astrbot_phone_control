@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..failover_adapter import generate
+
 
 import asyncio
 import base64
@@ -139,13 +141,14 @@ class PhoneReadScreenTool(_PhoneToolBase):
             30,
         )
         try:
-            response = await asyncio.wait_for(
-                app_context.llm_generate(
-                    chat_provider_id=provider_id,
-                    prompt=prompt,
-                    image_urls=[str(frame.path)],
-                ),
+            response = await generate(
+                self.service,
+                "vision",
+                app_context=app_context,
                 timeout=max(5.0, float(timeout_s)),
+                chat_provider_id=provider_id,
+                prompt=prompt,
+                image_urls=[str(frame.path)],
             )
         except asyncio.TimeoutError:
             return (

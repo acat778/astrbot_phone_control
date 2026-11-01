@@ -72,3 +72,25 @@ def populate_embedding_options(config, context):
         items = schema.get(group, {}).get("items", {})
         if key in items:
             items[key]["options"] = options
+
+
+def populate_failover_options(config, context):
+    """多选框按用途展示AstrBot已配置模型及其供应商。"""
+    from .model_failover import SLOTS, provider_id, providers_for, supplier_id
+
+    schema = getattr(config, "schema", None)
+    if not isinstance(schema, dict):
+        return
+    for slot, (group, key, kind) in SLOTS.items():
+        providers = providers_for(context, kind)
+        if slot == "asr":
+            providers += providers_for(context, "chat")
+        fields = schema.get(group, {}).get("items", {}).get(key, {}).get("items", {})
+        if not fields:
+            continue
+        fields["models"]["options"] = sorted(
+            {provider_id(p) for p in providers if provider_id(p)}
+        )
+        fields["suppliers"]["options"] = sorted(
+            {supplier_id(p) for p in providers if supplier_id(p)}
+        )

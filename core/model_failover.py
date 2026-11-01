@@ -206,8 +206,27 @@ class ModelFailover:
                     provider = self.context.get_provider_by_id(primary)
                     if provider is None:
                         raise PhoneControlError("主模型不存在")
+
+                    async def check():
+                        if SLOTS[slot][2] == "chat" and callable(
+                            getattr(provider, "text_chat", None)
+                        ):
+                            valid_chat(
+                                await provider.text_chat(
+                                    prompt="Reply OK only.", request_max_retries=1
+                                )
+                            )
+                        elif SLOTS[slot][2] == "embedding":
+                            from .semantic import normalize_vector
+
+                            vector = await provider.get_embedding("health")
+                            if len(normalize_vector(vector)) != int(provider.get_dim()):
+                                raise PhoneControlError("主向量模型探测结果非法")
+                        else:
+                            await provider.test()
+
                     await asyncio.wait_for(
-                        provider.test(), timeout=min(30, state.policy.recovery_seconds)
+                        check(), timeout=min(30, state.policy.recovery_seconds)
                     )
                 except Exception as exc:
                     self.log(f"主模型探测失败 [{slot}] {primary}: {type(exc).__name__}")

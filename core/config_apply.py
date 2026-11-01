@@ -178,6 +178,15 @@ LIVE_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# 模型策略在每次请求时取当前配置。
+from .model_failover import SLOTS
+
+LIVE_KEYS = LIVE_KEYS | frozenset(
+    f"{group}.{key}.{leaf}"
+    for group, key, _ in SLOTS.values()
+    for leaf in ("mode", "suppliers", "models", "recovery_seconds")
+)
+
 # 被组件缓存/构造参数固化的配置字段（保存后必须重建或重启对应组件）。
 RECONCILE_KEYS: frozenset[str] = frozenset(
     {

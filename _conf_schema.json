@@ -286,6 +286,49 @@
         "description": "刷手机/学习任务使用的模型供应商",
         "hint": "留空=默认会话模型；只作用于 AI 静默自主任务：持续刷手机、随机玩手机、/phone play、后台任务；用户对话与手动命令会话不受影响，投递到用户会话的定时自主浏览沿用该会话默认模型。建议选择支持图片输入与工具调用（function calling）的模型，否则手机截图/工具循环可能失败；所选 Provider 被删除时任务回退默认模型并记 warning"
       },
+      "task_failover": {
+        "type": "object",
+        "description": "任务模型故障切换",
+        "items": {
+          "mode": {
+            "type": "string",
+            "default": "disabled",
+            "description": "故障切换方式",
+            "options": [
+              "disabled",
+              "suppliers",
+              "models"
+            ],
+            "hint": "disabled=关闭；suppliers=多选供应商并尝试其已配置的模型；models=按多选模型尝试。候选须支持本用途所需的输入与工具能力。"
+          },
+          "suppliers": {
+            "type": "list",
+            "default": [],
+            "options": [],
+            "description": "备用供应商（多选）",
+            "condition": {
+              "mode": "suppliers"
+            },
+            "hint": "尝试这些供应商下已在AstrBot配置并启用的同类型模型。新增供应商或模型后重载插件刷新选项。"
+          },
+          "models": {
+            "type": "list",
+            "default": [],
+            "options": [],
+            "description": "备用模型（多选）",
+            "condition": {
+              "mode": "models"
+            },
+            "hint": "按保存顺序尝试；候选成功后继续使用，主模型恢复时自动切回。"
+          },
+          "recovery_seconds": {
+            "type": "int",
+            "default": 300,
+            "description": "主模型恢复探测周期（秒）",
+            "hint": "5–86400秒；切换到备用后按此周期发送轻量健康请求，会消耗少量模型额度。主模型探测成功后切回。"
+          }
+        }
+      },
       "vision_provider_id": {
         "type": "string",
         "default": "",
@@ -293,12 +336,98 @@
         "hint": "用于屏幕 OCR、图片理解、图文正文和媒体关键帧，也用于视觉验证。留空依次使用 AstrBot 图片描述模型、当前会话模型；已选视频模型时，视频原画面与音轨交给视频模型。",
         "_special": "select_provider"
       },
+      "vision_failover": {
+        "type": "object",
+        "description": "图片模型故障切换",
+        "items": {
+          "mode": {
+            "type": "string",
+            "default": "disabled",
+            "description": "故障切换方式",
+            "options": [
+              "disabled",
+              "suppliers",
+              "models"
+            ],
+            "hint": "disabled=关闭；suppliers=多选供应商并尝试其已配置的模型；models=按多选模型尝试。候选须支持本用途所需的输入与工具能力。"
+          },
+          "suppliers": {
+            "type": "list",
+            "default": [],
+            "options": [],
+            "description": "备用供应商（多选）",
+            "condition": {
+              "mode": "suppliers"
+            },
+            "hint": "尝试这些供应商下已在AstrBot配置并启用的同类型模型。新增供应商或模型后重载插件刷新选项。"
+          },
+          "models": {
+            "type": "list",
+            "default": [],
+            "options": [],
+            "description": "备用模型（多选）",
+            "condition": {
+              "mode": "models"
+            },
+            "hint": "按保存顺序尝试；候选成功后继续使用，主模型恢复时自动切回。"
+          },
+          "recovery_seconds": {
+            "type": "int",
+            "default": 300,
+            "description": "主模型恢复探测周期（秒）",
+            "hint": "5–86400秒；切换到备用后按此周期发送轻量健康请求，会消耗少量模型额度。主模型探测成功后切回。"
+          }
+        }
+      },
       "video_provider_id": {
         "type": "string",
         "default": "",
         "_special": "select_provider",
         "description": "视频识别模型",
         "hint": "选择支持视频输入的 OpenAI 兼容模型，默认接收带设备原音轨的分段 MP4；不支持声音的模型可开启视频音轨单独识别。2 FPS、最长边 480 像素，单段最多 60 秒、文件最多 6 MiB（Base64 8 MiB）。留空使用音频与关键帧；单次内容采集最多 15 分钟或 128 MiB 缓存。"
+      },
+      "video_failover": {
+        "type": "object",
+        "description": "视频模型故障切换",
+        "items": {
+          "mode": {
+            "type": "string",
+            "default": "disabled",
+            "description": "故障切换方式",
+            "options": [
+              "disabled",
+              "suppliers",
+              "models"
+            ],
+            "hint": "disabled=关闭；suppliers=多选供应商并尝试其已配置的模型；models=按多选模型尝试。候选须支持本用途所需的输入与工具能力。"
+          },
+          "suppliers": {
+            "type": "list",
+            "default": [],
+            "options": [],
+            "description": "备用供应商（多选）",
+            "condition": {
+              "mode": "suppliers"
+            },
+            "hint": "尝试这些供应商下已在AstrBot配置并启用的同类型模型。新增供应商或模型后重载插件刷新选项。"
+          },
+          "models": {
+            "type": "list",
+            "default": [],
+            "options": [],
+            "description": "备用模型（多选）",
+            "condition": {
+              "mode": "models"
+            },
+            "hint": "按保存顺序尝试；候选成功后继续使用，主模型恢复时自动切回。"
+          },
+          "recovery_seconds": {
+            "type": "int",
+            "default": 300,
+            "description": "主模型恢复探测周期（秒）",
+            "hint": "5–86400秒；切换到备用后按此周期发送轻量健康请求，会消耗少量模型额度。主模型探测成功后切回。"
+          }
+        }
       },
       "video_audio_separate": {
         "type": "bool",
@@ -313,6 +442,49 @@
         "description": "语音识别模型",
         "hint": "用于只听音频、视频模型留空时的音频转写，或开启视频音轨单独识别时的声音识别。留空使用 AstrBot 当前 STT；视频默认由视频模型同时理解声音，无需重复配置。"
       },
+      "asr_failover": {
+        "type": "object",
+        "description": "语音模型故障切换",
+        "items": {
+          "mode": {
+            "type": "string",
+            "default": "disabled",
+            "description": "故障切换方式",
+            "options": [
+              "disabled",
+              "suppliers",
+              "models"
+            ],
+            "hint": "disabled=关闭；suppliers=多选供应商并尝试其已配置的模型；models=按多选模型尝试。候选须支持本用途所需的输入与工具能力。"
+          },
+          "suppliers": {
+            "type": "list",
+            "default": [],
+            "options": [],
+            "description": "备用供应商（多选）",
+            "condition": {
+              "mode": "suppliers"
+            },
+            "hint": "尝试这些供应商下已在AstrBot配置并启用的同类型模型。新增供应商或模型后重载插件刷新选项。"
+          },
+          "models": {
+            "type": "list",
+            "default": [],
+            "options": [],
+            "description": "备用模型（多选）",
+            "condition": {
+              "mode": "models"
+            },
+            "hint": "按保存顺序尝试；候选成功后继续使用，主模型恢复时自动切回。"
+          },
+          "recovery_seconds": {
+            "type": "int",
+            "default": 300,
+            "description": "主模型恢复探测周期（秒）",
+            "hint": "5–86400秒；切换到备用后按此周期发送轻量健康请求，会消耗少量模型额度。主模型探测成功后切回。"
+          }
+        }
+      },
       "app_memory_embedding_provider_id": {
         "type": "string",
         "default": "",
@@ -321,6 +493,49 @@
         "options": [
           ""
         ]
+      },
+      "app_embedding_failover": {
+        "type": "object",
+        "description": "App经验向量模型故障切换",
+        "items": {
+          "mode": {
+            "type": "string",
+            "default": "disabled",
+            "description": "故障切换方式",
+            "options": [
+              "disabled",
+              "suppliers",
+              "models"
+            ],
+            "hint": "disabled=关闭；suppliers=多选供应商并尝试其已配置的模型；models=按多选模型尝试。候选须支持本用途所需的输入与工具能力。"
+          },
+          "suppliers": {
+            "type": "list",
+            "default": [],
+            "options": [],
+            "description": "备用供应商（多选）",
+            "condition": {
+              "mode": "suppliers"
+            },
+            "hint": "尝试这些供应商下已在AstrBot配置并启用的同类型模型。新增供应商或模型后重载插件刷新选项。"
+          },
+          "models": {
+            "type": "list",
+            "default": [],
+            "options": [],
+            "description": "备用模型（多选）",
+            "condition": {
+              "mode": "models"
+            },
+            "hint": "按保存顺序尝试；候选成功后继续使用，主模型恢复时自动切回。"
+          },
+          "recovery_seconds": {
+            "type": "int",
+            "default": 300,
+            "description": "主模型恢复探测周期（秒）",
+            "hint": "5–86400秒；切换到备用后按此周期发送轻量健康请求，会消耗少量模型额度。主模型探测成功后切回。"
+          }
+        }
       }
     }
   },
@@ -664,6 +879,49 @@
         ],
         "condition": {
           "local_enabled": true
+        }
+      },
+      "embedding_failover": {
+        "type": "object",
+        "description": "聊天记忆向量模型故障切换",
+        "items": {
+          "mode": {
+            "type": "string",
+            "default": "disabled",
+            "description": "故障切换方式",
+            "options": [
+              "disabled",
+              "suppliers",
+              "models"
+            ],
+            "hint": "disabled=关闭；suppliers=多选供应商并尝试其已配置的模型；models=按多选模型尝试。候选须支持本用途所需的输入与工具能力。"
+          },
+          "suppliers": {
+            "type": "list",
+            "default": [],
+            "options": [],
+            "description": "备用供应商（多选）",
+            "condition": {
+              "mode": "suppliers"
+            },
+            "hint": "尝试这些供应商下已在AstrBot配置并启用的同类型模型。新增供应商或模型后重载插件刷新选项。"
+          },
+          "models": {
+            "type": "list",
+            "default": [],
+            "options": [],
+            "description": "备用模型（多选）",
+            "condition": {
+              "mode": "models"
+            },
+            "hint": "按保存顺序尝试；候选成功后继续使用，主模型恢复时自动切回。"
+          },
+          "recovery_seconds": {
+            "type": "int",
+            "default": 300,
+            "description": "主模型恢复探测周期（秒）",
+            "hint": "5–86400秒；切换到备用后按此周期发送轻量健康请求，会消耗少量模型额度。主模型探测成功后切回。"
+          }
         }
       },
       "companion_enabled": {

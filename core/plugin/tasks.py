@@ -189,6 +189,21 @@ class TasksMixin:
         req = getattr(runner, "req", None)
         if event is not None and req is not None and check_admin_permission(event, self.service.config) is None:
             route_request(self.service, event, req)
+            from ..failover_adapter import manager_for, FailoverChatProvider
+
+            manager = manager_for(self.service)
+            if (
+                self.service.is_task_session(event)
+                and event.get_platform_name() == "cron"
+                and manager.policy("task").mode != "disabled"
+            ):
+                if not isinstance(runner.provider, FailoverChatProvider):
+                    runner.provider = FailoverChatProvider(
+                        manager,
+                        runner.provider,
+                        primary_id=self.service.config.model.provider_id,
+                    )
+                runner.fallback_providers = []
 
     def _background_task_submitted(self, event: Any) -> None:
         """委托成功后释放发起会话的手机占用，主任务继续执行。"""

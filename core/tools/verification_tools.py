@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..failover_adapter import generate
+
 import asyncio
 import json
 import math
@@ -391,13 +393,14 @@ async def _vision_json(
     超时抛 :class:`asyncio.TimeoutError`，其他调用异常原样上抛，由工具按阶段给出建议。
     传入 ``service`` 时按返回 usage 立即记账（内部识图调用不在 Agent 钩子内）。
     """
-    response = await asyncio.wait_for(
-        app_context.llm_generate(
-            chat_provider_id=provider_id,
-            prompt=prompt,
-            image_urls=[str(image_path)],
-        ),
+    response = await generate(
+        service,
+        "vision",
+        app_context=app_context,
         timeout=max(1.0, float(timeout)),
+        chat_provider_id=provider_id,
+        prompt=prompt,
+        image_urls=[str(image_path)],
     )
     text = _vision_response_text(response)
     _record_internal_usage(service, response, event, source, prompt, text, 1)
