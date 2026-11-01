@@ -459,3 +459,83 @@ async def test_app_index_restarts_entire_build_after_switch_and_restoration(tmp_
         and snapshot.provider_key == resolver.resolve("main").key
         and snapshot.count == 2
     )
+
+
+@run_async
+async def test_asr_chat_primary_can_switch_to_native_stt():
+    from core.config import PhoneConfig
+    from core.media_provider import MediaProviders
+
+    m, calls, bad, now, raw = setup()
+    raw["model"]["asr_failover"] = {
+        "mode": "models",
+        "models": ["stt"],
+        "recovery_seconds": 5,
+    }
+
+    async def transcribe(audio):
+        calls.append(audio)
+        return "actual transcript"
+
+    stt = NS(provider_config={"id": "stt"}, get_text=transcribe)
+    original_get = m.context.get_provider_by_id
+    m.context.get_provider_by_id = lambda key: (
+        stt if key == "stt" else original_get(key)
+    )
+    m.context.get_all_stt_providers = lambda: [stt]
+
+    async def broken(**kw):
+        raise RuntimeError("down")
+
+    m.context.llm_generate = broken
+    service = NS(
+        app_context=m.context, model_failover=m, config=PhoneConfig.from_mapping(raw)
+    )
+    media = MediaProviders(m.context, service)
+    result = await media.generate(
+        _slot="asr",
+        chat_provider_id="main",
+        prompt="transcribe",
+        audio_urls=["one.wav"],
+    )
+    assert result.completion_text == "actual transcript" and calls == ["one.wav"]
+
+
+@run_async
+async def test_asr_native_stt_can_switch_to_chat_and_records_real_usage():
+    from core.config import PhoneConfig
+    from core.media_provider import MediaProviders
+
+    m, calls, bad, now, raw = setup()
+    raw["model"]["asr_failover"] = {
+        "mode": "models",
+        "models": ["b1"],
+        "recovery_seconds": 5,
+    }
+
+    async def broken(audio):
+        raise RuntimeError("down")
+
+    primary = m.context.get_provider_by_id("main")
+    primary.get_text = broken
+
+    async def llm_generate(**kw):
+        return NS(
+            role="assistant", completion_text="actual transcript", usage={"input": 10}
+        )
+
+    m.context.llm_generate = llm_generate
+    service = NS(
+        app_context=m.context,
+        model_failover=m,
+        config=PhoneConfig.from_mapping(raw),
+        record_internal_usage=lambda usage, **kw: calls.append((usage, kw)),
+    )
+    result = await MediaProviders(m.context, service).transcribe(
+        primary, "one.wav", event="event"
+    )
+    assert (
+        result == "actual transcript"
+        and calls[0][0] == {"input": 10}
+        and calls[0][1]["event"] == "event"
+    )

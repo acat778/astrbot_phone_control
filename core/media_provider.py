@@ -105,7 +105,7 @@ class MediaProviders:
             slot, primary, call, timeout=timeout, validate=valid_chat
         )
 
-    async def transcribe(self, provider, audio):
+    async def transcribe(self, provider, audio, *, event=None):
         from .failover_adapter import manager_for
         from .model_failover import provider_id
 
@@ -130,6 +130,16 @@ class MediaProviders:
                     audio_urls=[str(audio)],
                 )
                 result = getattr(response, "completion_text", "")
+                record = getattr(self.service, "record_internal_usage", None)
+                if callable(record):
+                    record(
+                        getattr(response, "usage", None),
+                        source="internal:media_asr",
+                        event=event,
+                        prompt_text="请准确转写音频中的人声，不补充未听到的内容。",
+                        completion_text=str(result or ""),
+                        image_count=0,
+                    )
             if not str(result or "").strip():
                 raise PhoneControlError("语音模型返回空转写")
             return result
@@ -161,6 +171,22 @@ class MediaProviders:
                 }
             ]
             kwargs["prompt"] = None
+        get_text = getattr(selected, "get_text", None)
+        if kwargs.get("audio_urls") and callable(get_text):
+            from types import SimpleNamespace
+
+            if (
+                len(kwargs["audio_urls"]) != 1
+                or kwargs.get("image_urls")
+                or video_path is not None
+            ):
+                raise PhoneControlError("STT 模型只接收单个音频转写输入")
+            text = await get_text(kwargs["audio_urls"][0])
+            if not str(text or "").strip():
+                raise PhoneControlError("语音模型返回空转写")
+            return SimpleNamespace(
+                role="assistant", completion_text=str(text).strip(), usage=None
+            )
         transport = audio_transport(selected)
         if kwargs.get("audio_urls") and transport == "transcript":
             raise PhoneControlError("候选模型不支持原音频输入")

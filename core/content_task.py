@@ -503,7 +503,7 @@ class ContentTasks:
             stt, stt_note = await resolver(event, self.service.config) if callable(resolver) else (None, "")
             if stt is not None:
                 transcript = await self.model_request(
-                    self.providers.transcribe(stt, audio),
+                    self.providers.transcribe(stt, audio, event=event),
                     provider_id=getattr(stt, "provider_id", "STT"),
                     stage="语音识别",
                     timeout=config.asr_timeout_seconds,
@@ -542,7 +542,7 @@ class ContentTasks:
                 )
                 if stt is not None:
                     transcript = await self.model_request(
-                        self.providers.transcribe(stt, audio),
+                        self.providers.transcribe(stt, audio, event=event),
                         provider_id=getattr(stt, "provider_id", "STT"),
                         stage="语音识别",
                         timeout=config.asr_timeout_seconds,
@@ -588,7 +588,7 @@ class ContentTasks:
                         f"原音频不受支持且转写不可用：{note}"
                     ) from exc
                 transcript = await self.model_request(
-                    self.providers.transcribe(provider, audio),
+                    self.providers.transcribe(provider, audio, event=event),
                     provider_id=getattr(provider, "provider_id", "STT"),
                     stage="语音识别",
                     timeout=config.asr_timeout_seconds,
@@ -667,7 +667,7 @@ class ContentTasks:
         get_text = getattr(provider, "get_text", None)
         if callable(get_text):
             value = await self.model_request(
-                self.providers.transcribe(provider, audio),
+                self.providers.transcribe(provider, audio, event=event),
                 provider_id=provider_id,
                 stage="语音识别",
                 timeout=config.asr_timeout_seconds,
