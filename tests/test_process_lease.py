@@ -131,3 +131,88 @@ def test_device_heartbeat_retries_transient_failure_without_extending_expiry(mon
         assert all('[ "$E" -gt "$N" ] || exit 75' in x for x in beats)
         assert leases.TTL==15
     asyncio.run(run())
+
+
+def capture_renew_command(monkeypatch, lease_path):
+    import core.process_lease as leases
+    commands = []
+    class Adb:
+        async def shell(self, command, **kwargs):
+            if 'case "$E"' in command:
+                commands.append(command)
+                raise asyncio.CancelledError
+            return ''
+    async def run():
+        lease = leases.DeviceLease(Adb(), 'test')
+        lease.path = str(lease_path)
+        lease.observe('GUARD_PID=123')
+        with pytest.raises(asyncio.CancelledError):
+            await lease.task
+        return lease
+    monkeypatch.setattr(leases, 'INTERVAL', .001)
+    return asyncio.run(run()), commands[0]
+
+
+def test_renewal_never_exposes_empty_lease_to_live_watchdog(tmp_path, monkeypatch):
+    lease_path = tmp_path / 'lease'
+    lease, command = capture_renew_command(monkeypatch, lease_path)
+    lease_path.write_text(str(int(time.time()) + 15))
+    ready, cleaned = tmp_path / 'ready', tmp_path / 'cleaned'
+    body = lease.watchdog_body('', 'touch ' + str(cleaned)).replace('sleep 2', 'sleep .005')
+    watch = subprocess.Popen(['sh', '-c',
+        'cat() { command cat "$@"; touch ' + str(ready) + '; }; ' + body])
+    try:
+        wait_for(ready.exists)
+        # 在写入函数内暂停，此时 shell 已执行重定向，可稳定观察发布窗口。
+        subprocess.run(['sh', '-c',
+            'echo() { sleep .1; command echo "$@"; }; '
+            'printf() { sleep .1; command printf "$@"; }; ' + command], check=True)
+        assert watch.poll() is None, '有效续期期间看门狗不应退出或清理设备'
+        assert not cleaned.exists()
+        assert int(lease_path.read_text()) > int(time.time())
+    finally:
+        lease_path.unlink(missing_ok=True)
+        watch.wait(timeout=3)
+
+
+@pytest.mark.parametrize('value', [None, '', 'invalid', '1'])
+def test_renewal_preserves_missing_or_expired_lease(tmp_path, monkeypatch, value):
+    path = tmp_path / 'lease'
+    _, command = capture_renew_command(monkeypatch, path)
+    if value is not None:
+        path.write_text(value)
+    result = subprocess.run(['sh', '-c', command])
+    assert result.returncode == 75
+    assert path.read_text() == value if value is not None else not path.exists()
+
+
+def test_confirmed_lost_device_lease_stops_heartbeat_immediately(monkeypatch):
+    import core.process_lease as leases
+    from core.errors import AdbCommandError
+    calls = []
+    class Adb:
+        async def shell(self, command, **kwargs):
+            if 'case "$E"' in command:
+                calls.append(command)
+                raise AdbCommandError('lease lost', returncode=75)
+            return ''
+    async def run():
+        lease = leases.DeviceLease(Adb(), 'traffic')
+        lease.observe('GUARD_PID=123')
+        await asyncio.wait_for(lease.task, .2)
+        assert len(calls) == 1
+    monkeypatch.setattr(leases, 'INTERVAL', .001)
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('remove', [True, False])
+def test_renewal_rechecks_current_lease_after_staging(tmp_path, monkeypatch, remove):
+    path = tmp_path / 'lease'
+    _, command = capture_renew_command(monkeypatch, path)
+    path.write_text(str(int(time.time()) + 15))
+    change = 'rm -f ' + str(path) if remove else 'command echo 1 > ' + str(path)
+    result = subprocess.run(['sh', '-c',
+        'printf() { command printf "$@"; ' + change + '; }; ' + command])
+    assert result.returncode == 75
+    assert not path.exists() if remove else path.read_text().strip() == '1'
+    assert not Path(str(path) + '.renew').exists()

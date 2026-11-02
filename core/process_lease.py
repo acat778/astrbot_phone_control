@@ -17,6 +17,7 @@ from contextlib import suppress
 from pathlib import Path
 
 from astrbot.api import logger
+from .errors import AdbCommandError
 
 TTL = 15
 INTERVAL = 3
@@ -175,6 +176,7 @@ class DeviceLease:
 
     def __init__(self, adb, name: str):
         self.adb = adb
+        self.name = name
         self.path = (
             f"/data/local/tmp/phone-lease-{name}-{revision()[:12]}-{uuid.uuid4().hex}"
         )
@@ -254,19 +256,29 @@ class DeviceLease:
                 while True:
                     await asyncio.sleep(1 if failures else INTERVAL)
                     if time.monotonic() - last_success >= TTL - 2:
-                        logger.warning("设备心跳未在租约期限内恢复，等待子进程退出")
+                        logger.warning("设备心跳未在租约期限内恢复（%s），等待子进程退出", self.name)
                         break
                     command = (
                         f"E=$(cat {shlex.quote(self.path)} 2>/dev/null); N=$(date +%s); "
                         'case "$E" in ""|*[!0-9]*) exit 75;; esac; '
-                        f'[ "$E" -gt "$N" ] || exit 75; echo $((N + {TTL})) > {shlex.quote(self.path)}'
+                        '[ "$E" -gt "$N" ] || exit 75; '
+                        # 同目录原子替换使看门狗始终读取完整到期时间。
+                        f"T={shlex.quote(self.path + '.renew')}; "
+                        "trap 'rm -f \"$T\"' EXIT; "
+                        f"printf '%s\\n' $((N + {TTL})) > \"$T\" || exit 74; "
+                        f"C=$(cat {shlex.quote(self.path)} 2>/dev/null); "
+                        '[ "$C" = "$E" ] && [ "$C" -gt "$(date +%s)" ] || exit 75; '
+                        f'mv -f "$T" {shlex.quote(self.path)}'
                     )
                     try:
                         await self.adb.shell(command, timeout=3)
                     except Exception as exc:
+                        if isinstance(exc, AdbCommandError) and exc.returncode == 75:
+                            logger.warning("设备租约已失效（%s），停止续期：%s", self.name, exc)
+                            break
                         failures += 1
                         logger.warning(
-                            "设备心跳暂时失败（%s），租约期内重试：%s", failures, exc
+                            "设备心跳暂时失败（%s，%s），租约期内重试：%s", self.name, failures, exc
                         )
                         continue
                     if failures:
