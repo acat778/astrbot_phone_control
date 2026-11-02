@@ -460,6 +460,8 @@ class PhoneControlPlugin(
         run_context: Any = None,
     ) -> None:
         """记录插件任务 Agent 的运行 task，供 /phone stop 取消。"""
+        if self._terminated and self.service.task_origin(event):
+            raise asyncio.CancelledError("手机任务所属插件实例已关闭")
         payload = event.get_extra("cron_payload") or {}
         if isinstance(payload, dict) and payload.get("work_as_subagent"):
             job_id = str((event.get_extra("cron_job") or {}).get("id") or "")

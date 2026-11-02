@@ -426,6 +426,49 @@ def test_agent_begin_rejects_inactive_mode_before_model(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize('origin', [
+    'phone_random_play', 'phone_continuous', plugin_main.AUTO_BROWSE_JOB_ORIGIN,
+    'phone_play',
+])
+def test_terminate_cancels_running_phone_cron_before_closing_resources(tmp_path, monkeypatch, origin):
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        modes = {'phone_continuous': '自动刷', plugin_main.AUTO_BROWSE_JOB_ORIGIN: '定时玩'}
+        plugin.raw_config['auto'].update(activity_enabled=True,
+            mode=modes.get(origin, '随机玩'))
+        extra = {'cron_payload': {'origin': origin, 'play_task': True},
+                 'cron_job': {'id': 'reload-test'}}
+        event = types.SimpleNamespace(unified_msg_origin='cron:OtherMessage:reload-test',
+            get_extra=lambda key, default=None: extra.get(key, default),
+            set_extra=lambda key, value: extra.__setitem__(key, value),
+            get_platform_name=lambda: 'cron', get_sender_id=lambda: '1')
+        ready = asyncio.Event()
+        async def agent():
+            await plugin.track_task_agent_begin(event)
+            ready.set()
+            await asyncio.Event().wait()
+        run = asyncio.create_task(agent())
+        unrelated = asyncio.create_task(asyncio.Event().wait())
+        await asyncio.wait_for(ready.wait(), 2)
+        async def close_models():
+            assert run.cancelled(), 'Agent must stop before shared resources close'
+        monkeypatch.setattr(plugin.service.model_failover, 'close', close_models)
+        try:
+            await plugin.terminate()
+            assert run.cancelled()
+            assert not plugin._active_agent_tasks
+            assert not unrelated.done()
+            with pytest.raises(asyncio.CancelledError, match='实例已关闭'):
+                await plugin.track_task_agent_begin(event)
+            assert not plugin._active_agent_tasks
+        finally:
+            run.cancel()
+            unrelated.cancel()
+            await asyncio.gather(run, unrelated, return_exceptions=True)
+            await plugin.terminate()
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize('origin,mode',[('phone_random_play','随机玩'),('phone_continuous','自动刷')])
 @pytest.mark.parametrize('swallow_cancel',[False,True])
 def test_cancelled_activity_releases_lease_without_framework_done_hook(tmp_path, monkeypatch, origin, mode, swallow_cancel):

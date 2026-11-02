@@ -827,6 +827,17 @@ class BootstrapMixin:
 
     async def _terminate_impl(self) -> None:
         """终止流程实现：取消后台任务、恢复设备状态并关闭资源。"""
+        for job_id in self.service.background_tasks.active():
+            self.service.background_tasks.update(job_id, "cancelled")
+            manager = getattr(self.context, "cron_manager", None)
+            if manager is not None:
+                try:
+                    await manager.delete_job(job_id)
+                except Exception as exc:
+                    logger.warning("删除后台排程失败，已标记取消并继续回收Agent：%s", exc)
+        # 所有插件排程的在途 Agent 都在资源关闭前结束，防止继续调用本实例工具。
+        for _umo, (_task, job_id, _origin) in list(self._active_agent_tasks.items()):
+            await self._abort_running_cron_event(job_id)
         manager = getattr(self.service, "model_failover", None)
         if manager is not None:
             await manager.close()
@@ -874,17 +885,6 @@ class BootstrapMixin:
             except Exception:  # noqa: BLE001 - 还原失败不影响卸载
                 pass
             self._agent_usage_patch_installed = False
-        for job_id in self.service.background_tasks.active():
-            self.service.background_tasks.update(job_id, "cancelled")
-            manager = getattr(self.context, "cron_manager", None)
-            if manager is not None:
-                try:
-                    await manager.delete_job(job_id)
-                except Exception as exc:
-                    logger.warning("删除后台排程失败，已标记取消并继续回收Agent：%s", exc)
-        for _umo, (_task, job_id, origin) in list(self._active_agent_tasks.items()):
-            if origin == "phone_background_task":
-                await self._abort_running_cron_event(job_id)
         monitors = list(getattr(self, "_activity_window_tasks", ()))
         for monitor in monitors:
             monitor.cancel()
