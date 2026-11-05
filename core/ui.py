@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -259,13 +260,19 @@ def _shorten(value: str, max_len: int) -> str:
     """按最大长度截断文本，超出时以省略号结尾。"""
     if max_len <= 0 or len(value) <= max_len:
         return value
-    return value[: max(1, max_len - 1)] + "…"
+    return value[:max_len]
 
 
 def _quote(value: str) -> str:
-    """把文本包成双引号形式，转义引号并压平换行。"""
-    flat = value.replace("\r", " ").replace("\n", " ").replace('"', '\\"')
-    return f'"{flat}"'
+    """用 JSON 字符串保留定位文本中的换行、引号和反斜杠。"""
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _render_label(name: str, value: str, max_len: int) -> str:
+    """字段值保留真实前缀，展示截断信息单独标记。"""
+    prefix = _shorten(value, max_len)
+    suffix = f" {name}_truncated=true" if prefix != value else ""
+    return f"{name}={_quote(prefix)}{suffix}"
 
 
 def _is_loading_text(text: str) -> bool:
@@ -332,16 +339,16 @@ def render_ui(
         parts = [f"[{node.ref}]"]
         if node.text:
             label = "placeholder" if node.showing_hint is True else "text"
-            parts.append(f"{label}={_quote(_shorten(node.text, max_text_len))}")
+            parts.append(_render_label(label, node.text, max_text_len))
         if node.hint:
-            parts.append(f"hint={_quote(_shorten(node.hint, max_text_len))}")
+            parts.append(_render_label("hint", node.hint, max_text_len))
         if editable:
             parts.append("editable")
             parts.append("focused" if node.focused else "unfocused")
             if node.showing_hint is None:
                 parts.append("输入值/占位提示未区分，输入后核对实际关键词再提交")
         if node.desc:
-            parts.append(f"desc={_quote(_shorten(node.desc, max_text_len))}")
+            parts.append(_render_label("desc", node.desc, max_text_len))
         if node.clickable:
             parts.append(f"clickable@({node.bounds.center_x},{node.bounds.center_y})")
         elif node.long_clickable:

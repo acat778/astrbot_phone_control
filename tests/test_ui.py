@@ -310,7 +310,7 @@ def test_render_ui_truncates_text_and_nodes():
     ]
     text = render_ui(make_snapshot(nodes), max_nodes=1, max_text_len=5)
     assert "已截断" in text
-    assert "abcd…" in text
+    assert 'text="abcde" text_truncated=true' in text
     assert "第二条" not in text
 
 
@@ -347,7 +347,7 @@ def test_render_ui_flags_and_escaping():
     assert "disabled" in text
     assert "@(15,16)" in text
     assert "\\" in text  # 引号已转义
-    assert "\n换行" not in text  # 换行被压平
+    assert "\\n换行" in text  # JSON 转义保留原始换行
 
 
 def test_render_ui_empty_snapshot():

@@ -107,8 +107,8 @@ _TOOL_DESC_COMPACT: dict[str, str] = {
         "WireGuard 组网：status 状态；start/stop/restart 开关/重启 helper；"
         "config 显示导入用配置（client=服务器 Peer 片段，server=手机端完整配置）。"
     ),
-    "phone_tap": "点击：按坐标 (x,y) 或 text/desc 定位后点击。",
-    "phone_long_press": "长按：坐标或 text/desc 定位，duration_ms 为按压时长。",
+    "phone_tap": "点击：坐标 (x,y) 或 text/desc 子串定位；*_truncated=true 的字段值为可直接使用的原文前缀。",
+    "phone_long_press": "长按：坐标或 text/desc 子串定位，*_truncated=true 的字段值可直接使用；duration_ms 为按压时长。",
     "phone_swipe": "按方向滑动 up/down/left/right 翻页，duration_ms 为时长。",
     "phone_input_text": "先点编辑框；replace 替换实际输入，输入后核对关键词，press_enter 仅在可验证时回车；占位提示不是旧内容，模拟器可无软键盘。",
     "phone_key": "发送按键：back/home/enter/recents/volume_*/power/tab/delete 等。",

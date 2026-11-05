@@ -233,7 +233,8 @@ class PhoneTapTool(_PhoneToolBase):
     name: str = "phone_tap"
     description: str = (
         "点击手机屏幕。可传坐标 (x, y)，也可传 text/desc 让插件先在当前 UI 树里"
-        "定位控件中心再点击；text/desc 优先于坐标。"
+        "定位控件中心再点击；text/desc 优先于坐标。屏幕字段的 *_truncated=true "
+        "表示值为原文前缀，可直接用于子串定位。"
     )
     parameters: dict = Field(
         default_factory=lambda: {
@@ -292,6 +293,7 @@ class PhoneLongPressTool(_PhoneToolBase):
     name: str = "phone_long_press"
     description: str = (
         "长按手机屏幕。可传坐标 (x, y)，也可传 text/desc 定位控件；duration_ms 为按住时长。"
+        "屏幕字段的 *_truncated=true 表示值为原文前缀，可直接用于子串定位。"
     )
     parameters: dict = Field(
         default_factory=lambda: {
