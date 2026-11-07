@@ -14,6 +14,7 @@ from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.message_session import MessageSession
 
+from ..result_delivery import SHARE_RECEIPT
 from ..apps import app_label_for_package
 from ..errors import PhoneControlError
 from ..share_content import join_share_text, pick_share_link, plan_share
@@ -241,4 +242,4 @@ class PhoneShareToUserTool(_PhoneToolBase):
             notes.append("未获取到分享链接，已用截图代替，禁止纯文字分享")
         if notes:
             result += "\n" + "；".join(dict.fromkeys(notes))
-        return result + "\n交付已完成；继续静默收尾，不重复介绍或再发已分享内容。"
+        return result + "\n" + SHARE_RECEIPT

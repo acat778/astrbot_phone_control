@@ -23,6 +23,7 @@ from astrbot.api.event import MessageChain
 
 from .apps import all_app_keys, app_label, resolve_app
 from .config import PhoneConfig
+from .result_delivery import DELIVERY_GUIDANCE
 
 JOB_ORIGIN = PLUGIN_NAME
 BACKGROUND_JOB_NAME = "phone-background-task"
@@ -59,13 +60,12 @@ def build_background_task_note(instruction: Any, share_target: Any = "") -> str:
         f"【后台任务】{text}\n\n"
         "这是后台任务：全程静默操作，不要向用户逐步汇报，也不要在工具调用之间输出中间"
         "解说文字；需要连续调用工具时直接调用。"
-        f"完成后用 phone_share_to_user 汇报结果，target 留空，由任务登记投递到 {target}"
+        f"结果通过 phone_share_to_user 交付，target 留空，由任务登记投递到 {target}"
         "（必须带内容链接或截图，禁止纯文字：优先取抓包/App 分享接口里的链接，"
         "拿不到链接就 include_screenshot=true 附截图；只是说明文字不作为最终分享内容）。"
         "过程中有评论/发帖时按规则先 phone_interaction_gate 申请、完成后 "
         "phone_interaction_record 记录；收尾由插件自动回桌面并清理后台。"
-        "汇报默认 1–2 句、≤80 字；任务结果只给 1–3 个要点，不复述过程/工具输出"
-        "（用户要求详情除外）。"
+        + DELIVERY_GUIDANCE
     )
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from .result_delivery import DELIVERY_GUIDANCE
 
 DISPATCH_TOOL = 'phone_start_background_task'
 SUBAGENT_EXTRA = 'work_as_subagent'
@@ -59,6 +60,8 @@ def route_request(service: Any, event: Any, request: Any) -> bool:
             '独立Agent后台执行；你继续处理主任务及普通对话，无需等待或反复轮询。'
             '查询或取消用同一工具的action=status/list/cancel。'
         )
+        if child or synthetic:
+            text += DELIVERY_GUIDANCE
         parts.append(TextPart(text=marker + text).mark_as_temp())
     return delegate
 

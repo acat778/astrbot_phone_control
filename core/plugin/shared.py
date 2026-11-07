@@ -15,6 +15,7 @@ from ..plugin_shared import (
     _llm_response_text,
 )
 from ..config import PhoneConfig
+from ..result_delivery import DELIVERY_GUIDANCE
 from ..identity import PLUGIN_NAME
 from ..play_flow import LIVE_BROWSE_FLOW, render_flexibility, DIRECT_BROWSE_FLOW, FLOW_RULE, flow_rule_text, break_rule_hint, share_cooldown_text
 from ..share_policy import share_window_text
@@ -72,10 +73,9 @@ _PHONE_CONTROL_TOOLS = frozenset(
 
 _GUIDANCE = (
     "【手机操控能力】39 个 phone_* 工具；先 phone_skill 读手册。重复任务可用 phone_task_template 生成参数草案，展示正文和参数后由用户发送确认命令保存；已确认模板可带参数运行。\n应用安全：先 phone_list_apps 查看模型识别类型；金融类应用拒绝打开，类型未确认或模型失败也拒绝。打开应用必须用 phone_open_app/phone_browse，不得改用桌面图标、深链或 shell 绕过分类。\n"
-    "回复：默认 1–2 句、≤80 字；任务结果只给 1–3 个要点，不复述过程/工具输出"
-    "（用户要求详情除外）。\n"
+    + DELIVERY_GUIDANCE + "\n"
     "存图：开关开启后图文 read 按兴趣 phone_save_image，填写描述/标签/理由，按配置存服务端/手机/两地；phone_saved_images 可查询服务端/手机本地图片；发帖/回复按语义决定是否配图，相关时 search 阅读描述、gate 预约，再 prepare(kind/reason) 并在 App 选图核对预览，无合适图片用文字。保存与分享独立。\n"
-    "静默：仅主人可用；搜索/点按/失败重试过程不发文字。完成后仅一次简短结果，分享前总结为1–2句且≤100字；分享成功后静默收尾。\n"
+    "静默：仅主人可用；搜索/点按/失败重试过程不发文字，交付形式按用户要求执行。\n"
     "Token 额度按 quota 配置；每日互动 -1 不限、0 禁止、正数限额。\n"
     "App 经验：打开 App/读取屏幕后会自动按当前 App、当前页面召回经验，按召回内容操作；界面与经验不符或操作报错说明经验可能失效，先重新探索，再用 phone_app_remember 覆盖更新（成功后清除失效标记）。\n"
     "内容任务：图文打开前begin，视频确认起点后begin；phone_content 分段read、独立决定续看/看评论/回复，完成finish。看评论不等于回复。\n"
