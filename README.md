@@ -51,10 +51,11 @@ ADB 地址与端口留空时，插件可安装和加载，面板与配置可用�
 
 | 能力 | 说明 |
 | --- | --- |
-| 手机控制 | 38 个 `phone_*` 工具，支持状态、UI 树、截图、点击、滑动、输入、按键与后台清理；按场景选择 ADB、scrcpy、minitouch |
+| 手机控制 | 39 个 `phone_*` 工具，支持状态、UI 树、截图、点击、滑动、输入、按键与后台清理；按场景选择 ADB、scrcpy、minitouch |
 | 内容理解 | 图文任务关联原图与正文，视频/直播结合播放音频、关键帧、STT 与视觉 Provider；看评论、回复、分享分别判断 |
 | 自主浏览 | 定时、随机和持续任务，按兴趣选择内容；用户任务优先，过程静默，结束简短汇报 |
 | 互动与配图 | 点赞、收藏、评论、被动回复、发帖分别授权并记账；按语义选用服务器或手机保存的图片 |
+| 参数任务模板 | 将常用任务生成参数草案，用户确认保存后带参数调用，支持预览、查询和删除 |
 | 记忆与经验 | 浏览日志、学习档案、App 使用经验、本地语义召回，可选同步 MemoryCompanion / LivingMemory |
 | 监控与管理 | Dashboard 查看运行指标、记录、图片、记忆索引与相似关系图谱，支持删除和筛选 |
 | 组网与抓包 | WireGuard、Tailscale、ZeroTier 接入；流量可通过 ADB reverse 或组网 IP 进入 mitmproxy |
@@ -252,7 +253,7 @@ python3 -m pytest tests -q
 | 路径 | 内容 |
 | --- | --- |
 | `main.py`、`core/plugin/` | 入口、生命周期、命令、任务、监控与同步 |
-| `core/service.py`、`core/tools/` | 能力门面与 38 个工具 |
+| `core/service.py`、`core/tools/` | 能力门面与 39 个工具 |
 | `core/app_policy.py` | 应用类型模型分类及启动限制 |
 | `core/mesh*.py`、`core/wireguard.py` | 用户态组网、TCP 转发与节点生命周期 |
 | `views/dashboard/` | 监控与资料管理页面 |

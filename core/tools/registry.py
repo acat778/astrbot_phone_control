@@ -40,6 +40,7 @@ from .content import (
 )
 from .interaction import PhoneInteractionGateTool, PhoneInteractionRecordTool
 from .task import PhoneStartBackgroundTaskTool
+from .task_template import PhoneTaskTemplateTool
 from .verification_tools import PhoneBypassVerifyTool
 from .solve import PhoneSolveVerificationTool
 from .screen_ai import PhoneLiveScreenTool, PhoneReadScreenTool, PhoneWatchMediaTool
@@ -74,6 +75,7 @@ TOOL_NAMES = (
     "phone_interaction_gate",
     "phone_interaction_record",
     "phone_start_background_task",
+    "phone_task_template",
     "phone_live_screen",
     "phone_read_screen",
     "phone_solve_verification",
@@ -143,6 +145,7 @@ _TOOL_DESC_COMPACT: dict[str, str] = {
         "summary≤120 字；只做流程记账，不是底层动作拦截。"
     ),
     "phone_start_background_task": "手机子Agent后台执行立即返回；action=start/list/status/cancel，查询或取消填job_id。",
+    "phone_task_template": "用户会话参数模板：list/show/propose/render/run/delete；草案须展示全文与参数，由用户发送确认命令保存，run返回后台job_id。",
     "phone_live_screen": "看实时屏幕最新帧（age/前台），可回传图片；页面内容优先 phone_screen。",
     "phone_read_screen": "OCR 识别实时屏幕文字/验证码，返回文本与帧信息；页面内容优先 phone_screen。",
     "phone_solve_verification": (
@@ -257,6 +260,7 @@ def build_phone_tools(service: Any) -> list[FunctionTool]:
         PhoneInteractionGateTool(service=service),
         PhoneInteractionRecordTool(service=service),
         PhoneStartBackgroundTaskTool(service=service),
+        PhoneTaskTemplateTool(service=service),
         PhoneLiveScreenTool(service=service),
         PhoneReadScreenTool(service=service),
         PhoneSolveVerificationTool(service=service),

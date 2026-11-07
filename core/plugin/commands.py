@@ -202,6 +202,10 @@ class CommandsMixin:
             await self._say(event, json.dumps(result, ensure_ascii=False, indent=2))
             return
 
+        if sub == "template":
+            await self._cmd_template(event, raw)
+            return
+
         if self._verification.paused and sub not in {
             "verify",
             "status",
@@ -504,6 +508,43 @@ class CommandsMixin:
             f"已接单，转入后台静默执行（job {getattr(job, 'job_id', '?')}），"
             "完成后会主动向你汇报；期间可继续聊天，用 /phone tasks 查看进度。",
         )
+
+    async def _cmd_template(self, event: AstrMessageEvent, raw: str) -> None:
+        from types import SimpleNamespace
+        from ..task_templates import TaskTemplateError
+        from ..ui_snapshot import event_owner
+        from ..tools.base import _is_cron_event
+        from ..tools.task_template import PhoneTaskTemplateTool, public_template
+
+        parts = raw.split(maxsplit=2)
+        action = parts[1].lower() if len(parts) > 1 else "list"
+        argument = parts[2].strip() if len(parts) > 2 else ""
+        try:
+            if _is_cron_event(event) or self.service.is_task_session(event):
+                raise TaskTemplateError("模板须由发起用户会话管理")
+            if action == "confirm":
+                # 确认只由原生消息命令入口执行，工具没有确认动作。
+                message = str(event.get_message_str() or "").strip()
+                expected = "/phone template confirm " + argument
+                if not argument or message != expected:
+                    raise TaskTemplateError("请由用户直接发送完整的 /phone template confirm <草案ID> 命令")
+                saved = self.service.task_templates.confirm(event_owner(event), argument)
+                await self._say(event, "模板已确认保存：" + json.dumps(public_template(saved), ensure_ascii=False))
+                return
+            if action in {"run", "render"}:
+                payload = json.loads(argument)
+                if not isinstance(payload, dict) or set(payload) - {"name", "values"}:
+                    raise TaskTemplateError('调用格式：/phone template run {"name":"模板名","values":{"topic":"主题"}}')
+                kwargs = dict(payload, action=action)
+            elif action in {"list", "show", "delete"}:
+                kwargs = {"action": action, "name": argument}
+            else:
+                raise TaskTemplateError('用法：/phone template list | show <名称> | confirm <草案ID> | render/run <JSON> | delete <名称>')
+            context = SimpleNamespace(context=SimpleNamespace(event=event))
+            result = await PhoneTaskTemplateTool(service=self.service).call(context, **kwargs)
+            await self._say(event, str(result))
+        except (TaskTemplateError, json.JSONDecodeError) as exc:
+            await self._say(event, "error: " + str(exc))
 
     async def _cmd_tasks(self, event: AstrMessageEvent) -> None:
         """``/phone tasks``：列出本插件创建的后台任务。"""

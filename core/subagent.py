@@ -35,11 +35,11 @@ def route_request(service: Any, event: Any, request: Any) -> bool:
     if tool_set is not None:
         tools = list(tool_set.tools)
         if child:
-            tools = [t for t in tools if t.name.startswith('phone_') and t.name != DISPATCH_TOOL]
+            tools = [t for t in tools if t.name.startswith('phone_') and t.name not in {DISPATCH_TOOL, 'phone_task_template'}]
         elif synthetic:
             tools = [t for t in tools if t.name != 'send_message_to_user']
         else:
-            tools = [t for t in tools if not t.name.startswith('phone_') or t.name == DISPATCH_TOOL]
+            tools = [t for t in tools if not t.name.startswith('phone_') or t.name in {DISPATCH_TOOL, 'phone_task_template'}]
         request.func_tool = ToolSet(tools=tools)
     parts = getattr(request, 'extra_user_content_parts', None)
     if parts is None:

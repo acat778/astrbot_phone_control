@@ -514,7 +514,7 @@ def _wrap_call(handler):
         except Exception:  # noqa: BLE001 - 缺少事件时交给 handler 统一报错
             event = None
         gate = getattr(self.service, "gate", None)
-        if self.name == "phone_start_background_task":
+        if self.name in {"phone_start_background_task", "phone_task_template"}:
             gate = None
         elif event is not None:
             from ..subagent import foreground_delegates

@@ -1292,7 +1292,8 @@ def test_phone_screen_includes_current_page_traffic(tmp_path, monkeypatch):
                 return "com.max.xiaoheihe", ".MainActivity"
 
             async def fake_screen(max_nodes=0):
-                return "UI 树：当前页面", types.SimpleNamespace()
+                from core.models import ScreenSnapshot
+                return "UI 树：当前页面", ScreenSnapshot(package="com.max.xiaoheihe")
 
             monkeypatch.setattr(
                 plugin.service.actions, "foreground", fake_foreground

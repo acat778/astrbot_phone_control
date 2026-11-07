@@ -224,6 +224,8 @@ class PhoneService:
             novelty if novelty is not None else NoveltyStore(self.data_dir)
         )
         self.learning = LearningStore(self.data_dir)
+        from .task_templates import TaskTemplateStore
+        self.task_templates = TaskTemplateStore(self.data_dir)
         # 由插件装配：AstrBot Star Context（OCR/后台任务）、实时屏幕 watcher 与后端管理器。
         self.app_context: Any = None
         from .app_policy import AppPolicy
