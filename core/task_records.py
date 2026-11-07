@@ -109,6 +109,8 @@ class BackgroundTaskRegistry:
                 if result:
                     record['progress'] = str(result)[:500]
                 record['wait_reason'] = '' if status == 'completed' else (str(result)[:500] or record['wait_reason'] or '执行已结束，未确认结果')
+                if status == 'failed' and record['events'] and not record['events'][-1]['ok']:
+                    record['wait_reason'] = record['events'][-1]['summary']
         self._change(job_id, change)
 
     def tool_started(self, event, name):

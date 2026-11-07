@@ -96,3 +96,26 @@ def test_task_dashboard_pagination_and_evidence_binding(tmp_path, monkeypatch):
         finally:
             await _cleanup(plugin)
     asyncio.run(scenario())
+
+
+def test_agent_response_does_not_mark_failed_final_step_as_completed(tmp_path, monkeypatch):
+    async def scenario():
+        plugin = _make_plugin(tmp_path, monkeypatch)
+        tool = configure(plugin)
+        try:
+            key = json.loads(await tool.call(FakeToolContext(FakeEvent()), instruction='汇报测试结果'))['job_id']
+            job = plugin.context.cron_manager.jobs[key]
+            child = FakeEvent(umo='cron:OtherMessage:' + key, platform='cron', payload={'cron_payload': job.payload})
+            child.set_extra('cron_job', {'id': key})
+            plugin.service.background_tasks.update(key, 'running')
+            await plugin.track_phone_tool_result(child, SimpleNamespace(name='phone_share_to_user'), {}, 'error: 截图超过帧龄，未发送')
+            monkeypatch.setattr(plugin, '_auto_cleanup_after_task', AsyncMock())
+            await plugin.on_task_agent_done(child, response=SimpleNamespace(completion_text='任务完成'))
+            saved = plugin.service.background_tasks.records[key]
+            assert saved['status'] == 'failed'
+            assert saved['deliveries'] == []
+            assert '帧龄' in saved['wait_reason']
+            assert saved['result'] == '任务完成'
+        finally:
+            await _cleanup(plugin)
+    asyncio.run(scenario())

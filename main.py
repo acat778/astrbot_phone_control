@@ -239,7 +239,8 @@ class PhoneControlPlugin(
 ):
     """AstrBot 手机操控插件。"""
 
-    _CONTROL_SUBS = frozenset({"stop", "verify", "wg", "tasks", "status", "quota", "template"})
+    _CONTROL_SUBS = frozenset({"stop", "verify", "wg"})
+    _QUERY_SUBS = frozenset({"tasks", "template"})
     _HELP_SUBS = frozenset({"", "help", "-h", "--help", "?", "？"})
 
     async def terminate(self) -> None:
@@ -274,14 +275,14 @@ class PhoneControlPlugin(
             return
         self._remember_event_session(event)
         # 鉴权通过后才允许登记用户任务并中止自主任务（任何调度副作用都在鉴权之后）。
-        priority = sub not in {"tasks", "status", "quota", "template"}
+        priority = sub not in self._QUERY_SUBS
         if priority:
             await self._enter_user_priority(event)
         # 命令内产生的浏览日志标记为本轮命令，供清理保护按轮次保留。
         round_token = set_round(new_round_id(), ORIGIN_COMMAND)
         entered = False
         try:
-            if sub in self._CONTROL_SUBS:
+            if sub in self._CONTROL_SUBS | self._QUERY_SUBS:
                 await self._dispatch_phone(event, raw)
             else:
                 with self.device_gate.scope(
@@ -537,6 +538,9 @@ class PhoneControlPlugin(
             running = self._active_agent_tasks.get(str(event.unified_msg_origin))
             cancelled = bool(running and running[0].cancelled())
             status = "cancelled" if cancelled else ("completed" if response is not None else "ended")
+            record = self.service.background_tasks.records.get(job_id)
+            if status == "completed" and record and record['events'] and not record['events'][-1]['ok']:
+                status = "failed"
             self.service.background_tasks.update(job_id, status, str(getattr(response, "completion_text", "") or ""))
         try:
             from .core.interactions import RUN_EXTRA
