@@ -62,3 +62,18 @@ def test_confirmation_only_exact_native_user_message_and_owned_draft(tmp_path,mo
                 assert not plugin.service.task_templates.list(owner)
         finally:await _cleanup(plugin)
     asyncio.run(run())
+
+
+def test_confirmation_accepts_host_consumed_wakeup_prefix(tmp_path,monkeypatch):
+    async def run():
+        plugin=_make_plugin(tmp_path,monkeypatch);configure(plugin);plugin._say=AsyncMock()
+        event=FakeEvent();owner=(event.unified_msg_origin,event.get_sender_id())
+        try:
+            for prefix in ('/',''):
+                draft=plugin.service.task_templates.propose(owner,'前缀测试'+str(len(prefix)),'观察当前手机',{})
+                raw='template confirm '+draft['revision']
+                await plugin._dispatch_phone(FakeEvent(text=prefix+'phone '+raw),raw)
+                assert '模板已确认保存' in plugin._say.await_args.args[1]
+                assert plugin.service.task_templates.show(owner,'前缀测试'+str(len(prefix)))['revision']==draft['revision']
+        finally:await _cleanup(plugin)
+    asyncio.run(run())

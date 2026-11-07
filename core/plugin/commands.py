@@ -525,8 +525,8 @@ class CommandsMixin:
             if action == "confirm":
                 # 确认只由原生消息命令入口执行，工具没有确认动作。
                 message = str(event.get_message_str() or "").strip()
-                expected = "/phone template confirm " + argument
-                if not argument or message != expected:
+                expected = "phone template confirm " + argument
+                if not argument or message.removeprefix("/") != expected:
                     raise TaskTemplateError("请由用户直接发送完整的 /phone template confirm <草案ID> 命令")
                 saved = self.service.task_templates.confirm(event_owner(event), argument)
                 await self._say(event, "模板已确认保存：" + json.dumps(public_template(saved), ensure_ascii=False))
