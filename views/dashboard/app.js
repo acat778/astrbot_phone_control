@@ -21,6 +21,8 @@
     imagesRequest: 0,
     diaryOffset: 0,
     diaryRequest: 0,
+    tasksOffset: 0,
+    tasksRequest: 0,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -103,6 +105,7 @@
     $("view-vectors").hidden = view !== "vectors";
     $("view-images").hidden = view !== "images";
     $("view-mesh").hidden = view !== "mesh";
+    $("view-tasks").hidden = view !== "tasks";
     if (view === "dashboard") {
       schedulePolls();
       refreshOverview();
@@ -116,6 +119,9 @@
       if (view === "vectors") loadVectors();
       if (view === "images") loadImages();
       if (view === "mesh") loadMesh();
+      if (view === "tasks") {
+        loadTasks();
+      }
     }
   }
 
@@ -965,6 +971,51 @@
     item.appendChild(form); list.appendChild(item);
   }
 
+  async function loadTasks() {
+    const request = ++state.tasksRequest;
+    try {
+      const value = await apiGet('dashboard/tasks', { offset: state.tasksOffset, limit: 20 });
+      if (request !== state.tasksRequest) return;
+      const list = $('tasks-list'); list.replaceChildren();
+      setText('tasks-status', `共 ${value.total} 个任务，显示 ${state.tasksOffset + (value.tasks.length ? 1 : 0)}–${state.tasksOffset + value.tasks.length}`);
+      $('tasks-prev').disabled = state.tasksOffset === 0;
+      $('tasks-next').disabled = state.tasksOffset + value.tasks.length >= value.total;
+      const labels = { queued: '排队', running: '执行中', completed: '已完成', cancelled: '已取消', interrupted: '执行中断', failed: '失败', ended: '已结束，待核对' };
+      for (const task of value.tasks) {
+        const card = document.createElement('article'); card.className = 'card';
+        const title = document.createElement('h2'); title.textContent = `${labels[task.status] || task.status} · ${task.summary}`;
+        const info = document.createElement('p'); info.textContent = `${task.job_id} · ${fmtDateTime(task.created_at)} · ${task.steps} 步 · 更新 ${fmtDateTime(task.updated_at)}`;
+        const progress = document.createElement('p'); progress.textContent = `进度：${task.progress}`;
+        const wait = document.createElement('p'); wait.textContent = `等待原因：${task.wait_reason || '无'}`;
+        card.append(title, info, progress, wait);
+        const detail = document.createElement('details');
+        const summary = document.createElement('summary'); summary.textContent = '查看执行记录与结果证据'; detail.append(summary);
+        const result = document.createElement('p'); result.textContent = `结果：${task.result || '尚无确认结果'}`; detail.append(result);
+        for (const delivery of task.deliveries) {
+          const sent = document.createElement('p'); sent.textContent = `已送达 ${fmtDateTime(delivery.ts)}：${delivery.text} ${delivery.link}`; detail.append(sent);
+        }
+        for (const entry of task.events) {
+          const line = document.createElement('p'); line.textContent = `${fmtTime(entry.ts)} ${entry.tool} ${entry.ok ? '成功' : '未完成'}：${entry.summary}`; detail.append(line);
+        }
+        for (const shot of task.screenshots) {
+          const button = document.createElement('button'); button.type = 'button'; button.className = 'btn ghost';
+          button.textContent = `查看截图 ${fmtDateTime(shot.ts)}`;
+          button.addEventListener('click', async () => {
+            button.disabled = true;
+            try {
+              const proof = await apiGet('dashboard/tasks/evidence', { job_id: task.job_id, id: shot.id });
+              if (!/^data:image\/(png|jpeg);base64,/.test(proof.data_url)) throw new Error('截图响应格式无效');
+              const img = document.createElement('img'); img.src = proof.data_url; img.alt = '任务截图证据'; img.style.maxWidth = '100%';
+              button.replaceWith(img);
+            } catch (err) { button.disabled = false; setText('tasks-status', err.message || String(err)); }
+          });
+          detail.append(button);
+        }
+        card.append(detail); list.append(card);
+      }
+    } catch (err) { if (request === state.tasksRequest) setText('tasks-status', err.message || String(err)); }
+  }
+
   // ---------------- 初始化 ----------------
   async function init() {
     try {
@@ -981,6 +1032,9 @@
     document.querySelectorAll(".nav-item").forEach((btn) => {
       btn.addEventListener("click", () => switchView(btn.dataset.view));
     });
+    $('tasks-refresh').addEventListener('click', loadTasks);
+    $('tasks-prev').addEventListener('click', () => { state.tasksOffset = Math.max(0, state.tasksOffset - 20); loadTasks(); });
+    $('tasks-next').addEventListener('click', () => { state.tasksOffset += 20; loadTasks(); });
     $("app-pair").addEventListener("click", async () => {
       $("app-pair").disabled = true;
       try {
@@ -1128,6 +1182,8 @@
         loadVectors();
       } else if (state.view === "images") {
         loadImages();
+      } else if (state.view === "tasks") {
+        loadTasks();
       }
     });
     window.addEventListener("resize", redrawCharts);

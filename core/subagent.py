@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 from .result_delivery import DELIVERY_GUIDANCE
+from .task_records import BackgroundTaskRegistry
 
 DISPATCH_TOOL = 'phone_start_background_task'
 SUBAGENT_EXTRA = 'work_as_subagent'
@@ -64,30 +65,3 @@ def route_request(service: Any, event: Any, request: Any) -> bool:
             text += DELIVERY_GUIDANCE
         parts.append(TextPart(text=marker + text).mark_as_temp())
     return delegate
-
-
-class BackgroundTaskRegistry:
-    """当前插件实例的任务状态；保留最近100条已结束记录。"""
-
-    def __init__(self):
-        self.records: dict[str, dict[str, Any]] = {}
-
-    def add(self, job, *, sender: str, session: str):
-        self.records[str(job.job_id)] = {
-            'job_id': str(job.job_id), 'sender': sender, 'session': session,
-            'summary': str(job.description or '')[:100], 'status': 'queued', 'result': '',
-        }
-        finished = [key for key, item in self.records.items() if item['status'] not in {'queued', 'running'}]
-        for key in finished[:-100]:
-            self.records.pop(key, None)
-
-    def update(self, job_id: str, status: str, result: str = ''):
-        record = self.records.get(job_id)
-        if record is not None and record['status'] != 'cancelled':
-            record.update(status=status, result=result[:1000])
-
-    def owned(self, sender: str, session: str):
-        return [dict(r) for r in self.records.values() if r['sender'] == sender and r['session'] == session]
-
-    def active(self):
-        return [r['job_id'] for r in self.records.values() if r['status'] in {'queued', 'running'}]

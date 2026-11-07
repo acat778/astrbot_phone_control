@@ -26,6 +26,7 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
         '提交手机子Agent后台执行，立即返回job_id；主Agent继续主任务，无需等待。'
         'action=start传instruction（1-500字），完成后向share_target（默认原会话）分享。'
         'action=list/status/cancel查询或取消本人的当前会话任务；status/cancel须job_id。'
+        'status包含持久化进度、等待原因、工具记录、截图ID与实际送达证据；list返回最近20项摘要。'
     )
     parameters: dict = Field(default_factory=lambda: {
         'type': 'object',
@@ -52,9 +53,10 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
         session = str(getattr(event, 'unified_msg_origin', '') or '')
         sender = str(event.get_sender_id() or '')
         manager = getattr(getattr(self.service, 'app_context', None), 'cron_manager', None)
-        if manager is None:
+        if manager is None and action == 'start':
             return 'error: cron管理器不可用，无法管理手机后台Agent'
-        await self._refresh(manager)
+        if manager is not None:
+            await self._refresh(manager)
         if action != 'start':
             return await self._manage(manager, action, str(kwargs.get('job_id') or ''), session, sender)
         if not config.adb.configured:
@@ -85,7 +87,11 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
             )
         except BackgroundTaskError as exc:
             return _error(exc)
-        registry.add(job, sender=sender, session=session)
+        try:
+            registry.add(job, sender=sender, session=session)
+        except BaseException:
+            await manager.delete_job(str(job.job_id))
+            raise
         await self.service.apply_task_provider(job)
         submitted = getattr(self.service, 'background_submitted_hook', None)
         if callable(submitted):
@@ -108,7 +114,8 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
         registry = self.service.background_tasks
         owned = registry.owned(sender, session)
         if action == 'list':
-            return _json_text({'tasks': owned})
+            fields = ('job_id', 'summary', 'status', 'progress', 'wait_reason', 'steps', 'updated_at', 'result')
+            return _json_text({'tasks': [{k: r[k] for k in fields} for r in owned[:20]], 'total': len(owned)})
         record = next((r for r in owned if r['job_id'] == job_id and job_id), None)
         if record is None:
             return 'error: 当前用户会话没有此后台手机任务，请核对完整job_id'
@@ -119,9 +126,10 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
         cancel = getattr(self.service, 'background_cancel_hook', None)
         if not callable(cancel):
             return 'error: 后台Agent取消接口未就绪'
-        registry.update(job_id, 'cancelled')
+        registry.update(job_id, 'cancelled', '发起用户取消任务')
         try:
-            await manager.delete_job(job_id)
+            if manager is not None:
+                await manager.delete_job(job_id)
         finally:
             await cancel(job_id)
         return _json_text({'job_id': job_id, 'status': 'cancelled'})

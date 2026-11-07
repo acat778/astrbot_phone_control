@@ -205,7 +205,9 @@ ADB 从 [Google 官方平台包](https://developer.android.com/tools/releases/pl
 | --- | --- |
 | `/phone help`、`/phone status` | 帮助与设备状态，可切换图片/文字 |
 | `/phone browse [app] [条数]` | 浏览信息流并记录理解 |
-| `/phone task <instruction>`、`/phone tasks` | 后台多步任务与列表 |
+| `/phone task <instruction>`、`/phone tasks [list]` | 提交后台多步任务与查询本人会话的最近任务进度 |
+| `/phone tasks status/cancel <完整任务ID>` | 查看任务等待原因、工具记录与结果证据，或取消执行 |
+| `/phone tasks evidence <完整任务ID> <截图ID>` | 查看该任务保留的关键截图 |
 | `/phone play [tokens]` | 开始一轮静默玩手机 |
 | `/phone continuous on\|off\|status` | 持续浏览开关与状态 |
 | `/phone traffic [status\|tail\|on\|off]` | 抓包状态、近期流量与开关 |
@@ -215,6 +217,10 @@ ADB 从 [Google 官方平台包](https://developer.android.com/tools/releases/pl
 | `/phone quota [audit [小时]]` | 额度与实际用量对账 |
 
 模型额度限制后台任务、玩手机与媒体识别等模型执行入口。原生截图、连接、打开应用、固定采样浏览和状态查询等确定性命令可在额度耗尽时使用，权限与设备门禁仍按配置生效。
+
+后台任务在插件数据目录的 `background_tasks.sqlite3` 中保存状态、创建与更新时间、已执行步骤、当前工具、等待原因、最近 50 条工具记录及实际送达结果。监控面板的“后台任务”页提供分页列表和截图预览；原生命令与任务工具按发起用户及会话隔离查询和取消，查询可在模型额度耗尽或设备未配置时使用。
+
+任务保留所有在途记录和最近 100 条终态，每任务保留最近 8 张不同画面的截图（单张上限 2 MiB），截图存储独立于临时截图清理。取消、停用、异常退出和重启中断均留存原因；进程中断的执行由用户核对证据后重新提交。任务的完成状态与实际消息送达记录分别展示。
 | `/phone novelty [status\|reset]` | 新鲜感状态 |
 | `/phone stop [job_id\|all]` | 停手机任务、抓包和自主循环，回桌面清理后台 |
 

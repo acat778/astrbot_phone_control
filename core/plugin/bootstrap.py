@@ -429,7 +429,7 @@ class BootstrapMixin:
         )
         from ..subagent import BackgroundTaskRegistry
 
-        self.service.background_tasks = BackgroundTaskRegistry()
+        self.service.background_tasks = BackgroundTaskRegistry(self.data_dir / "background_tasks.sqlite3")
         self.service.app_context = self.context
         from ..failover_adapter import manager_for
 
@@ -675,6 +675,7 @@ class BootstrapMixin:
         if not getattr(self, "_live_instance_registered", False):
             await close_stale_instances(self)
             await cancel_stale_background_tasks()
+            self.service.background_tasks.recover()
             from ..process_lease import reclaim_legacy_processes
             await reclaim_legacy_processes([
                 self._traffic.confdir, self._wireguard.config_path, self.data_dir / "scrcpy",
@@ -828,7 +829,7 @@ class BootstrapMixin:
     async def _terminate_impl(self) -> None:
         """终止流程实现：取消后台任务、恢复设备状态并关闭资源。"""
         for job_id in self.service.background_tasks.active():
-            self.service.background_tasks.update(job_id, "cancelled")
+            self.service.background_tasks.update(job_id, "cancelled", "插件停用或重载，后台执行已取消")
             manager = getattr(self.context, "cron_manager", None)
             if manager is not None:
                 try:

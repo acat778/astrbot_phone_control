@@ -1023,6 +1023,8 @@ class PhoneService:
             manager.record_capture(str(meta.get("source") or "scrcpy"))
             if record_metric:
                 self._record_screenshot_metric(meta)
+            if persist:
+                self._save_task_screenshot(data, path)
             return data, path, meta
         foreground_package = str(expected_package or "").strip()
         if not foreground_package:
@@ -1094,7 +1096,19 @@ class PhoneService:
             )
         if record_metric:
             self._record_screenshot_metric(meta, fallback_ms=elapsed_fallback)
+        if persist:
+            self._save_task_screenshot(data, Path(resolved))
         return data, Path(resolved), meta
+
+    def _save_task_screenshot(self, data: bytes, path: Path) -> None:
+        from .device_gate import current_scope
+        scope = current_scope()
+        registry = getattr(self, 'background_tasks', None)
+        if registry is not None and scope is not None:
+            try:
+                registry.screenshot(scope.event, data, 'image/jpeg' if path.suffix.lower() in {'.jpg', '.jpeg'} else 'image/png')
+            except PhoneControlError as exc:
+                self._log(f'后台任务截图证据未保存：{exc}')
 
     async def screenshot(self) -> tuple[bytes, Path]:
         """截图并落盘，返回图片字节与路径。"""

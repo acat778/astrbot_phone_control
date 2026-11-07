@@ -218,7 +218,10 @@ _HELP_TEXT = """手机操控插件指令：
 /phone template list              查看当前用户会话的参数模板
 /phone template confirm <草案ID>    确认保存已审阅的模板
 /phone template run <JSON>         带参数运行已确认模板
-/phone tasks                      列出本插件创建的后台任务
+/phone tasks [list]               查看本人会话任务与当前进度
+/phone tasks status <任务ID>      查看等待原因、执行记录和结果证据
+/phone tasks cancel <任务ID>      取消任务
+/phone tasks evidence <任务ID> <截图ID>  查看关键截图
 adb.host / adb.port 留空时插件以未启用状态运行（面板/配置可用）；在插件配置「ADB 连接」填写地址与端口后重新加载插件即可启用手机能力。
 可在对话中直接让我使用 phone_* 工具操作手机。"""
 

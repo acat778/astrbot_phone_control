@@ -239,7 +239,7 @@ class PhoneControlPlugin(
 ):
     """AstrBot 手机操控插件。"""
 
-    _CONTROL_SUBS = frozenset({"stop", "verify", "wg"})
+    _CONTROL_SUBS = frozenset({"stop", "verify", "wg", "tasks", "status", "quota", "template"})
     _HELP_SUBS = frozenset({"", "help", "-h", "--help", "?", "？"})
 
     async def terminate(self) -> None:
@@ -274,7 +274,9 @@ class PhoneControlPlugin(
             return
         self._remember_event_session(event)
         # 鉴权通过后才允许登记用户任务并中止自主任务（任何调度副作用都在鉴权之后）。
-        await self._enter_user_priority(event)
+        priority = sub not in {"tasks", "status", "quota", "template"}
+        if priority:
+            await self._enter_user_priority(event)
         # 命令内产生的浏览日志标记为本轮命令，供清理保护按轮次保留。
         round_token = set_round(new_round_id(), ORIGIN_COMMAND)
         entered = False
@@ -300,7 +302,8 @@ class PhoneControlPlugin(
             reset_round(round_token)
             if entered:
                 self.device_gate.release_event(event)
-            self._exit_user_priority(event)
+            if priority:
+                self._exit_user_priority(event)
 
     @filter.on_using_llm_tool()
     async def track_phone_tool_use(
@@ -311,6 +314,7 @@ class PhoneControlPlugin(
             name = str(getattr(tool, "name", "") or "")
             if not name.startswith("phone_"):
                 return
+            self.service.background_tasks.tool_started(event, name)
             if name == "phone_start_background_task":
                 return
             if not self.service.is_task_session(event):
@@ -358,6 +362,9 @@ class PhoneControlPlugin(
             name = str(getattr(tool, "name", "") or "")
             if not name.startswith("phone_"):
                 return
+            self.service.background_tasks.tool_finished(event, name, tool_result)
+            if self._verification.paused:
+                self.service.background_tasks.waiting(event, self._verification.status_text())
             if not check_admin_permission(event, self.service.config):
                 self._tool_reports.submit(event, name, tool_result)
             if name in _PHONE_CONTROL_TOOLS:
@@ -463,13 +470,17 @@ class PhoneControlPlugin(
         if self._terminated and self.service.task_origin(event):
             raise asyncio.CancelledError("手机任务所属插件实例已关闭")
         payload = event.get_extra("cron_payload") or {}
-        if isinstance(payload, dict) and payload.get("work_as_subagent"):
+        if isinstance(payload, dict) and payload.get("origin") == "phone_background_task":
             job_id = str((event.get_extra("cron_job") or {}).get("id") or "")
             record = self.service.background_tasks.records.get(job_id)
-            if self._terminated or record is None or record["status"] == "cancelled":
+            if self._terminated or record is None or record["status"] not in {"queued", "running"}:
                 raise asyncio.CancelledError("后台手机任务已取消或所属插件实例已关闭")
-            await self._enter_user_priority(event)
+            if payload.get("work_as_subagent"):
+                await self._enter_user_priority(event)
             self.service.background_tasks.update(job_id, "running")
+            agent_task = asyncio.current_task()
+            if agent_task is not None:
+                agent_task.add_done_callback(lambda task: self.service.background_tasks.agent_exited(job_id, task))
         if not self.service.activity_allowed(event):
             raise asyncio.CancelledError("自主模式已关闭或当前不在允许时间段内")
         try:

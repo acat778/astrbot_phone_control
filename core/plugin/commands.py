@@ -216,6 +216,7 @@ class CommandsMixin:
             "learn",
             "novelty",
             "wg",
+            "tasks",
         }:
             await self._say(
                 event,
@@ -229,7 +230,7 @@ class CommandsMixin:
             if quota_error:
                 await self._say(event, quota_error)
                 return
-        if not config.adb.configured and sub not in {"help", "diary", "quota", "stop", "learn", "traffic", "novelty"}:
+        if not config.adb.configured and sub not in {"help", "diary", "quota", "stop", "learn", "traffic", "novelty", "tasks", "status"}:
             await self._say_command(event, f"error: {UNCONFIGURED_MESSAGE}", sub)
             return
         if sub == "status":
@@ -276,7 +277,7 @@ class CommandsMixin:
         elif sub == "task":
             await self._cmd_task(event, raw)
         elif sub == "tasks":
-            await self._cmd_tasks(event)
+            await self._cmd_tasks(event, rest)
         elif sub == "play":
             await self._cmd_play(event, config, rest)
         elif sub == "stop":
@@ -492,24 +493,12 @@ class CommandsMixin:
                 f"{exc}\n用法：/phone task <instruction>（例如 /phone task 去B站看三个科技视频并总结）",
             )
             return
-        share_target = str(getattr(event, "unified_msg_origin", "") or "")
-        cron_manager = getattr(self.context, "cron_manager", None)
-        try:
-            job = await create_background_task(
-                cron_manager,
-                instruction=instruction,
-                share_target=share_target,
-                sender_id=str(event.get_sender_id() or ""),
-            )
-        except BackgroundTaskError as exc:
-            await self._say(event, f"error: {exc}")
-            return
-        await self._apply_task_provider_preference(job)
-        await self._say(
-            event,
-            f"已接单，转入后台静默执行（job {getattr(job, 'job_id', '?')}），"
-            "完成后会主动向你汇报；期间可继续聊天，用 /phone tasks 查看进度。",
-        )
+        from types import SimpleNamespace
+        from ..tools.task import PhoneStartBackgroundTaskTool
+
+        context = SimpleNamespace(context=SimpleNamespace(event=event))
+        result = await PhoneStartBackgroundTaskTool(service=self.service).call(context, instruction=instruction)
+        await self._say(event, str(result))
 
     async def _cmd_template(self, event: AstrMessageEvent, raw: str) -> None:
         from types import SimpleNamespace
@@ -548,43 +537,54 @@ class CommandsMixin:
         except (TaskTemplateError, json.JSONDecodeError) as exc:
             await self._say(event, "error: " + str(exc))
 
-    async def _cmd_tasks(self, event: AstrMessageEvent) -> None:
-        """``/phone tasks``：列出本插件创建的后台任务。"""
-        cron_manager = getattr(self.context, "cron_manager", None)
+    async def _cmd_tasks(self, event: AstrMessageEvent, rest: list[str] | None = None) -> None:
+        """查询本人会话的持久化任务进度、证据或取消任务。"""
+        from types import SimpleNamespace
+        from ..tools.task import PhoneStartBackgroundTaskTool
+
+        args = rest or []
+        action = args[0].lower() if args else 'list'
+        job_id = args[1] if len(args) > 1 else ''
+        if action not in {'list', 'status', 'cancel', 'evidence'}:
+            await self._say(event, '用法：/phone tasks [list | status/cancel <完整任务ID> | evidence <完整任务ID> <截图ID>]')
+            return
+        context = SimpleNamespace(context=SimpleNamespace(event=event))
+        result = await PhoneStartBackgroundTaskTool(service=self.service).call(
+            context, action='status' if action == 'evidence' else action, job_id=job_id)
         try:
-            tasks = await list_background_tasks(cron_manager)
-        except BackgroundTaskError as exc:
-            await self._say(event, f"error: {exc}")
+            payload = json.loads(str(result))
+        except (TypeError, json.JSONDecodeError):
+            await self._say(event, str(result))
             return
-        if not tasks:
-            extra = (
-                "；持续刷手机运行中（/phone continuous status 查看）"
-                if self._continuous_enabled
-                else ""
-            )
-            await self._say(event, f"当前没有本插件创建的后台任务{extra}")
+        if action == 'evidence':
+            import base64
+            if len(args) != 3:
+                await self._say(event, '请提供完整任务ID与截图ID（status可查看）')
+                return
+            evidence = self.service.background_tasks.evidence(job_id, args[2])
+            if evidence is None:
+                await self._say(event, '未找到此任务的截图证据')
+                return
+            await event.send(MessageChain().base64_image(base64.b64encode(evidence[1]).decode('ascii')))
             return
-        lines = ["本插件后台任务（静默运行，完成后主动汇报）："]
-        if self._continuous_enabled:
-            lines.append(
-                "- 持续刷手机：运行中（/phone continuous status 查看，/phone stop 停止）"
-            )
-        for task in tasks:
-            job_id = str(task.get("job_id") or "")
-            short_id = job_id[:8] if job_id else "降级"
-            created = str(task.get("created_at") or "").replace("T", " ")[:16]
-            next_run = str(task.get("next_run_time") or "").replace("T", " ")[:16]
-            extras = []
-            if created:
-                extras.append(f"创建 {created}")
-            if next_run:
-                extras.append(f"计划 {next_run}")
-            suffix = f"（{'，'.join(extras)}）" if extras else ""
-            lines.append(
-                f"- {short_id}｜{task.get('status') or '未知'}{suffix}："
-                f"{task.get('summary') or '（无摘要）'}"
-            )
-        await self._say(event, "\n".join(lines))
+        records = payload.get('tasks', [payload])
+        if not records:
+            await self._say(event, '当前用户会话没有后台任务记录')
+            return
+        lines = ['手机后台任务：']
+        for item in records[:20]:
+            lines.extend([
+                f"- {item['job_id']}｜{item['status']}｜已执行 {item.get('steps', 0)} 步：{item.get('summary', '')}",
+                '  进度：' + str(item.get('progress') or '等待调度'),
+                '  等待原因：' + str(item.get('wait_reason') or '无'),
+            ])
+            if action != 'list':
+                lines.append('  结果：' + str(item.get('result') or '尚无确认结果'))
+                for delivery in item.get('deliveries', []):
+                    lines.append('  已送达：' + delivery['text'] + ' ' + delivery['link'])
+                for shot in item.get('screenshots', []):
+                    lines.append('  截图ID：' + shot['id'])
+        await self._say(event, '\n'.join(lines))
 
     async def _cmd_play(
         self,

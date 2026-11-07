@@ -19,6 +19,7 @@
           <button class="nav-item active" data-view="dashboard" type="button">监控面板</button>
           <button class="nav-item" data-view="relay" type="button">Relay App</button>
           <button class="nav-item" data-view="records" type="button">浏览与学习</button>
+          <button class="nav-item" data-view="tasks" type="button">后台任务</button>
           <button class="nav-item" data-view="vectors" type="button">记忆索引</button>
           <button class="nav-item" data-view="mesh" type="button">组网接入</button>
           <button class="nav-item" data-view="images" type="button">保存的图片</button>
@@ -45,6 +46,12 @@
 
       <main class="main">
         <p id="library-error" class="library-error" role="alert" tabindex="-1" hidden></p>
+        <section id="view-tasks" class="view" hidden>
+          <header class="page-head"><div><h1>后台任务</h1><p class="subtitle">查看当前进度、等待原因、截图与实际送达结果。</p></div><button id="tasks-refresh" class="btn ghost" type="button">刷新</button></header>
+          <p id="tasks-status" role="status" aria-live="polite"></p>
+          <div id="tasks-list"></div>
+          <div class="head-actions"><button id="tasks-prev" class="btn ghost" type="button">上一页</button><button id="tasks-next" class="btn ghost" type="button">下一页</button></div>
+        </section>
         <section id="view-dashboard" class="view">
           <header class="page-head">
             <div>

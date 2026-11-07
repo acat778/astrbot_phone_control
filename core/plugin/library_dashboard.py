@@ -14,6 +14,8 @@ from .compat import error_response, json_response, plugin_main_module
 class LibraryDashboardMixin:
     def _library_dashboard_routes(self, base):
         return (
+            (f"{base}/tasks", self.dashboard_tasks, ["GET"], "后台任务进度与结果"),
+            (f"{base}/tasks/evidence", self.dashboard_task_evidence, ["GET"], "后台任务截图证据"),
             (f"{base}/mesh/ca", self.dashboard_mesh_ca, ["GET"], "下载抓包 CA"),
             (f"{base}/mesh", self.dashboard_mesh, ["GET"], "组网状态"),
             (f"{base}/mesh/action", self.dashboard_mesh_action, ["POST"], "组网接入操作"),
@@ -47,6 +49,35 @@ class LibraryDashboardMixin:
                 "删除图片",
             ),
         )
+
+    async def dashboard_tasks(self):
+        query = plugin_main_module().request.query
+        try:
+            records = self.service.background_tasks.records
+            job_id = str(query.get('job_id') or '')
+            if job_id:
+                if job_id not in records:
+                    return error_response('未找到任务记录', status_code=404)
+                return json_response(records[job_id])
+            offset, limit = int(query.get('offset', 0)), int(query.get('limit', 20))
+            if offset < 0 or not 1 <= limit <= 50:
+                raise ValueError('分页超出范围')
+            items = sorted(records.values(), key=lambda r: r['created_at'], reverse=True)
+            return json_response({'tasks': items[offset:offset + limit], 'total': len(items)})
+        except ValueError:
+            return error_response('分页参数无效', status_code=400)
+        except PhoneControlError as exc:
+            return error_response(str(exc), status_code=500)
+
+    async def dashboard_task_evidence(self):
+        query = plugin_main_module().request.query
+        try:
+            row = self.service.background_tasks.evidence(str(query.get('job_id') or ''), str(query.get('id') or ''))
+            if row is None:
+                return error_response('未找到任务截图证据', status_code=404)
+            return json_response({'data_url': 'data:' + row[0] + ';base64,' + base64.b64encode(row[1]).decode('ascii')})
+        except PhoneControlError as exc:
+            return error_response(str(exc), status_code=500)
 
     async def dashboard_vector_graph(self):
         query = plugin_main_module().request.query

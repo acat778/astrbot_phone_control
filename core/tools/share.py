@@ -221,6 +221,16 @@ class PhoneShareToUserTool(_PhoneToolBase):
             return f"error: 分享失败：{exc}"
         if not sent:
             return f"error: 分享失败：没有找到目标会话 {target}"
+        evidence_note = ''
+        registry = getattr(self.service, 'background_tasks', None)
+        if registry is not None:
+            try:
+                registry.delivered(event, text=plan.text, link=plan.link, target=target)
+                if plan.screenshot_required:
+                    path = Path(shot_path)
+                    registry.screenshot(event, path.read_bytes(), 'image/jpeg' if path.suffix.lower() in {'.jpg', '.jpeg'} else 'image/png')
+            except (PhoneControlError, OSError) as exc:
+                evidence_note = f'\n消息已送达，但任务证据保存失败：{exc}；请勿重复发送。'
         if autonomous:
             self.service.record_share(target)
         if target == str(getattr(event, "unified_msg_origin", "") or "").strip():
@@ -242,4 +252,4 @@ class PhoneShareToUserTool(_PhoneToolBase):
             notes.append("未获取到分享链接，已用截图代替，禁止纯文字分享")
         if notes:
             result += "\n" + "；".join(dict.fromkeys(notes))
-        return result + "\n" + SHARE_RECEIPT
+        return result + "\n" + SHARE_RECEIPT + evidence_note
