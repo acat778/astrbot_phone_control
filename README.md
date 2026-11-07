@@ -213,6 +213,8 @@ ADB 从 [Google 官方平台包](https://developer.android.com/tools/releases/pl
 | `/phone wg [status\|start\|stop\|restart\|config]` | WireGuard 控制与配置输出 |
 | `/phone verify [status\|resume\|cancel <id>]` | 验证与人工协助 |
 | `/phone quota [audit [小时]]` | 额度与实际用量对账 |
+
+模型额度限制后台任务、玩手机与媒体识别等模型执行入口。原生截图、连接、打开应用、固定采样浏览和状态查询等确定性命令可在额度耗尽时使用，权限与设备门禁仍按配置生效。
 | `/phone novelty [status\|reset]` | 新鲜感状态 |
 | `/phone stop [job_id\|all]` | 停手机任务、抓包和自主循环，回桌面清理后台 |
 

@@ -223,10 +223,12 @@ class CommandsMixin:
                 + self._verification.status_text(),
             )
             return
-        quota_error = self.service.quota_error_text()
-        if quota_error and sub not in {"help", "quota", "stop", "learn", "continuous", "traffic", "novelty", "wg"}:
-            await self._say(event, quota_error)
-            return
+        # 额度约束会调用模型的执行入口；原生命令的确定性操作可独立使用。
+        if sub in {"watch", "media", "task", "play"}:
+            quota_error = self.service.quota_error_text()
+            if quota_error:
+                await self._say(event, quota_error)
+                return
         if not config.adb.configured and sub not in {"help", "diary", "quota", "stop", "learn", "traffic", "novelty"}:
             await self._say_command(event, f"error: {UNCONFIGURED_MESSAGE}", sub)
             return

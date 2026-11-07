@@ -59,6 +59,9 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
             return await self._manage(manager, action, str(kwargs.get('job_id') or ''), session, sender)
         if not config.adb.configured:
             raise AdbNotConfiguredError(UNCONFIGURED_MESSAGE)
+        quota_error = self.service.quota_error_text()
+        if quota_error:
+            return quota_error
         target = str(kwargs.get('share_target') or '').strip() or session
         target_error = (
             self.service.validate_share_target(target) if target != session
