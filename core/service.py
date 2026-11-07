@@ -237,6 +237,8 @@ class PhoneService:
         # 不必再 uiautomator dump 一次）；任何控制动作后失效，且复用前校验前台 App。
         self._ui_cache: tuple[float, ScreenSnapshot] | None = None
         self._ui_cache_ttl = 15.0
+        from .ui_snapshot import SnapshotTargets
+        self.snapshot_targets = SnapshotTargets()
         # 当前页面抓包快照：抓包与屏幕识别共用；设备写动作会更新动作时间并失效缓存。
         self._page_changed_at = 0.0
         self._page_traffic_cache: tuple[float, PageTrafficSnapshot] | None = None
@@ -789,6 +791,21 @@ class PhoneService:
         self._cache_ui_snapshot(snapshot)
         return text, snapshot
 
+    def _snapshot_device(self):
+        return (id(self.adb), self.config.adb.target,
+                str(getattr(getattr(self.adb, "bridge", None), "session", "")))
+
+    def expose_snapshot(self, snapshot, rendered, owner):
+        self.snapshot_targets.expose(snapshot, rendered, owner, self._snapshot_device())
+
+    async def find_snapshot_node(self, snapshot_id, node_ref, owner):
+        self.guard_device("snapshot_target")
+        self.ensure_configured()
+        item, node = self.snapshot_targets.get(snapshot_id, node_ref, owner, self._snapshot_device())
+        current = await dump_ui(self.adb, timeout=self.config.perception.dump_timeout)
+        self.snapshot_targets.validate(snapshot_id, item, current)
+        return node, item, current
+
     async def find_node(self, *, text: str = "", desc: str = "") -> UiNode | None:
         """在当前 UI 树里按文本/描述定位控件（优先复用新鲜快照）。"""
         cached = self._cached_ui_snapshot()
@@ -861,6 +878,7 @@ class PhoneService:
         可能来自上一页面或后台 App，不能当作当前页面内容。
         """
         self._ui_cache = None
+        self.snapshot_targets.clear()
         self._page_changed_at = time.time()
         self._page_traffic_cache = None
 
@@ -2102,10 +2120,12 @@ class PhoneService:
             self._log(f"控制后端不可用，回退 ADB：{exc}")
             return None
 
-    async def tap(self, x: int, y: int) -> None:
+    async def tap(self, x: int, y: int, *, snapshot_check=None) -> None:
         self.guard_device("tap")
         x, y = validate_touch_point(x, y, *(await self.actions.screen_size()))
         backend = await self._control_backend_or_none()
+        if snapshot_check is not None:
+            snapshot_check()
         try:
             if backend is None:
                 await self.actions.tap(x, y)
@@ -2115,11 +2135,13 @@ class PhoneService:
             self._invalidate_ui_cache()
 
     async def long_press(
-        self, x: int, y: int, *, duration_ms: int = 800
+        self, x: int, y: int, *, duration_ms: int = 800, snapshot_check=None
     ) -> None:
         self.guard_device("long_press")
         x, y = validate_touch_point(x, y, *(await self.actions.screen_size()))
         backend = await self._control_backend_or_none()
+        if snapshot_check is not None:
+            snapshot_check()
         try:
             if backend is None:
                 await self.actions.long_press(x, y, duration_ms=duration_ms)

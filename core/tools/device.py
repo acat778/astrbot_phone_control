@@ -16,7 +16,9 @@ from astrbot.core.message.message_event_result import MessageChain
 from ..page_content import page_traffic_footer
 from ..errors import PhoneControlError, UiDumpError, UiTargetNotFoundError
 
-from .base import _PhoneToolBase, _as_float, _as_int, _json_text, _ok, _wrap_call
+from ..ui_snapshot import event_owner
+
+from .base import _event_of, _PhoneToolBase, _as_float, _as_int, _json_text, _ok, _wrap_call
 
 
 @dataclass
@@ -67,7 +69,7 @@ class PhoneScreenTool(_PhoneToolBase):
         "把画面回传模型（适合视频/直播等实时页面，避免 dump 期间画面已变化）；"
         "mode=both 同时给 UI 树和快速截图。抓包可用时自动附带当前前台 App 的最近接口"
         "内容（include_traffic=false 可关闭），模型不必再单独调 phone_traffic；图文、"
-        "视频画面等视觉信息仍看截图。点击文本可用 phone_tap 的 text/desc 参数。"
+        "视频画面等视觉信息仍看截图。点击优先传 phone_tap(snapshot_id=返回ID,node_ref=编号)。"
     )
     parameters: dict = Field(
         default_factory=lambda: {
@@ -140,6 +142,9 @@ class PhoneScreenTool(_PhoneToolBase):
                     "请按实际画面观察，后续可用 mode=image；文本/节点定位需要重新采集成功。"
                 )
             else:
+                expose = getattr(self.service, "expose_snapshot", None)
+                if callable(expose):
+                    expose(_snapshot, ui_text, event_owner(_event_of(context)))
                 sections.append(ui_text)
                 hint_source += ui_text
 
@@ -226,13 +231,39 @@ class PhoneScreenTool(_PhoneToolBase):
         return mcp.types.CallToolResult(content=content)
 
 
+_SNAPSHOT_PARAMETERS = {
+    "snapshot_id": {"type": "string", "description": "phone_screen 返回的快照 ID，与 node_ref 一起使用。"},
+    "node_ref": {"type": "integer", "minimum": 0, "description": "该快照中 [21] 对应的整数 21，须同时提供 snapshot_id。"},
+}
+
+
+async def _snapshot_target(tool, context, kwargs):
+    snapshot_id = kwargs.get("snapshot_id")
+    node_ref = kwargs.get("node_ref")
+    if snapshot_id is None and node_ref is None:
+        return None
+    if not isinstance(snapshot_id, str) or not snapshot_id.strip() or node_ref is None:
+        raise PhoneControlError("快照定位须同时提供 snapshot_id 和 node_ref")
+    if any(kwargs.get(key) for key in ("text", "desc", "x", "y")):
+        raise PhoneControlError("快照编号与文本/描述/坐标只能选择一种定位方式")
+    node, item, current = await tool.service.find_snapshot_node(
+        snapshot_id, node_ref, event_owner(_event_of(context)),
+    )
+    point = await tool.service.node_click_point(node)
+    tool.service.snapshot_targets.validate(snapshot_id, item, current)
+    def check():
+        tool.service.snapshot_targets.get(snapshot_id, node_ref, event_owner(_event_of(context)), tool.service._snapshot_device())
+        tool.service.snapshot_targets.validate(snapshot_id, item, current)
+    return node, point, check
+
+
 @dataclass
 class PhoneTapTool(_PhoneToolBase):
     """按坐标或按文本点击。"""
 
     name: str = "phone_tap"
     description: str = (
-        "点击手机屏幕。可传坐标 (x, y)，也可传 text/desc 让插件先在当前 UI 树里"
+        "点击手机屏幕。优先使用 phone_screen 的 snapshot_id＋node_ref；也可传坐标或 text/desc。"
         "定位控件中心再点击；text/desc 优先于坐标。屏幕字段的 *_truncated=true "
         "表示值为原文前缀，可直接用于子串定位。"
     )
@@ -240,6 +271,7 @@ class PhoneTapTool(_PhoneToolBase):
         default_factory=lambda: {
             "type": "object",
             "properties": {
+                **_SNAPSHOT_PARAMETERS,
                 "x": {"type": "integer", "description": "点击横坐标（像素）。", "default": 0},
                 "y": {"type": "integer", "description": "点击纵坐标（像素）。", "default": 0},
                 "text": {
@@ -263,7 +295,11 @@ class PhoneTapTool(_PhoneToolBase):
         y = _as_int(kwargs.get("y"), 0)
         text = str(kwargs.get("text") or "").strip()
         desc = str(kwargs.get("desc") or "").strip()
-        if text or desc:
+        target = await _snapshot_target(self, context, kwargs)
+        if target is not None:
+            node, (x, y), snapshot_check = target
+            label = node.label
+        elif text or desc:
             node = await self.service.find_node(text=text, desc=desc)
             if node is None:
                 raise UiTargetNotFoundError(f"当前界面没有找到 text={text!r} desc={desc!r} 的控件")
@@ -273,7 +309,10 @@ class PhoneTapTool(_PhoneToolBase):
             return "error: 请提供 text/desc 定位控件，或提供有效的 x/y 坐标"
         else:
             label = f"({x},{y})"
-        await self.service.tap(x, y)
+        if target is not None:
+            await self.service.tap(x, y, snapshot_check=snapshot_check)
+        else:
+            await self.service.tap(x, y)
         result = f"已点击 {label} @({x},{y})"
         # 按 text/desc 点击通常意味着「点开感兴趣的标题/卡片」：记录为一次内容曝光，
         # 同类内容反复点击会累计疲劳度（新鲜感/厌倦感机制）。
@@ -292,13 +331,14 @@ class PhoneLongPressTool(_PhoneToolBase):
 
     name: str = "phone_long_press"
     description: str = (
-        "长按手机屏幕。可传坐标 (x, y)，也可传 text/desc 定位控件；duration_ms 为按住时长。"
+        "长按手机屏幕。优先用 snapshot_id＋node_ref，也可传坐标或 text/desc；duration_ms 为按住时长。"
         "屏幕字段的 *_truncated=true 表示值为原文前缀，可直接用于子串定位。"
     )
     parameters: dict = Field(
         default_factory=lambda: {
             "type": "object",
             "properties": {
+                **_SNAPSHOT_PARAMETERS,
                 "x": {"type": "integer", "description": "长按横坐标（像素）。", "default": 0},
                 "y": {"type": "integer", "description": "长按纵坐标（像素）。", "default": 0},
                 "text": {
@@ -328,7 +368,11 @@ class PhoneLongPressTool(_PhoneToolBase):
         text = str(kwargs.get("text") or "").strip()
         desc = str(kwargs.get("desc") or "").strip()
         duration_ms = _as_int(kwargs.get("duration_ms"), 800)
-        if text or desc:
+        target = await _snapshot_target(self, context, kwargs)
+        if target is not None:
+            node, (x, y), snapshot_check = target
+            label = node.label
+        elif text or desc:
             node = await self.service.find_node(text=text, desc=desc)
             if node is None:
                 raise UiTargetNotFoundError(f"当前界面没有找到 text={text!r} desc={desc!r} 的控件")
@@ -338,7 +382,10 @@ class PhoneLongPressTool(_PhoneToolBase):
             return "error: 请提供 text/desc 定位控件，或提供有效的 x/y 坐标"
         else:
             label = f"({x},{y})"
-        await self.service.long_press(x, y, duration_ms=duration_ms)
+        if target is not None:
+            await self.service.long_press(x, y, duration_ms=duration_ms, snapshot_check=snapshot_check)
+        else:
+            await self.service.long_press(x, y, duration_ms=duration_ms)
         return _ok(f"已长按 {label} @({x},{y})，{duration_ms}ms")
 
 

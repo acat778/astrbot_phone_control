@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -166,6 +167,7 @@ class ScreenSnapshot:
     captured_at: float = field(default_factory=time.time)
     screenshot_path: str | None = None
     raw_xml_size: int = 0
+    snapshot_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
     def find(
         self,

@@ -97,7 +97,7 @@ _TOOL_DESC_COMPACT: dict[str, str] = {
     "phone_status": "查看设备连接/前台 App/电量/分辨率；操作前可先确认设备。",
     "phone_screen": (
         "读屏幕：mode=ui（UI 树±截图）/image（仅快速画面）/both；"
-        "抓包可用时自动附当前页面接口内容。"
+        "UI返回snapshot_id及[编号]，点击传snapshot_id＋node_ref；抓包附当前页面内容。"
     ),
     "phone_traffic": (
         "看抓包识别页面：scope=page（当前前台页面）/recent（最近全部流量）；"
@@ -107,8 +107,8 @@ _TOOL_DESC_COMPACT: dict[str, str] = {
         "WireGuard 组网：status 状态；start/stop/restart 开关/重启 helper；"
         "config 显示导入用配置（client=服务器 Peer 片段，server=手机端完整配置）。"
     ),
-    "phone_tap": "点击：坐标 (x,y) 或 text/desc 子串定位；*_truncated=true 的字段值为可直接使用的原文前缀。",
-    "phone_long_press": "长按：坐标或 text/desc 子串定位，*_truncated=true 的字段值可直接使用；duration_ms 为按压时长。",
+    "phone_tap": "点击：优先 snapshot_id＋node_ref 定位 [编号]，快照60秒有效且动作后失效；也可坐标或text/desc。",
+    "phone_long_press": "长按：snapshot_id＋node_ref 或坐标/text/desc，页面变化须重新读屏；duration_ms 为按压时长。",
     "phone_swipe": "按方向滑动 up/down/left/right 翻页，duration_ms 为时长。",
     "phone_input_text": "先点编辑框；replace 替换实际输入，输入后核对关键词，press_enter 仅在可验证时回车；占位提示不是旧内容，模拟器可无软键盘。",
     "phone_key": "发送按键：back/home/enter/recents/volume_*/power/tab/delete 等。",

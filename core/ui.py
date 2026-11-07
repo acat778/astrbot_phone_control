@@ -317,6 +317,7 @@ def render_ui(
     if snapshot.activity:
         header += f" | Activity {snapshot.activity}"
     header += f" | 节点 {len(snapshot.nodes)} | 时间 {captured}"
+    header += f" | snapshot_id={snapshot.snapshot_id}"
     lines = [header]
 
     rendered = 0

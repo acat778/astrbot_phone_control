@@ -14,7 +14,7 @@ description: 人格化自主浏览手册：先观察再行动、进 App 先查�
    （需要看图时 `include_screenshot=true`）。
 2. **先看新消息**：每次进 App 先 `phone_check_inbox`（留空=当前 App），有回复按被动回复
    规则判断。
-3. **再行动**：翻页 `phone_swipe`；进详情/评论区 `phone_tap`（优先 text/desc 定位）；
+3. **再行动**：翻页 `phone_swipe`；进详情/评论区 `phone_tap`（优先用当前 `snapshot_id`＋`node_ref` 定位；页面变化或动作后重新读屏）；
    输入 `phone_input_text`；返回 `phone_key`；等加载用 `phone_wait`，不要盲目连点。
 4. **理解内容**：读标题、正文和评论后再决定继续看还是换；截图用 `phone_screenshot`，
    回忆用 `phone_recall_diary`。
@@ -78,7 +78,7 @@ image.auto_save_images 开启时，图文 read 后按兴趣调用 phone_save_ima
 
 ## 实时页面与验证码
 
-- `uiautomator dump` 要 2~13s，实时页面用 `phone_screen(mode="image")` 只看画面。
+- 当前节点采集需要数秒，实时页面用 `phone_screen(mode="image")` 只看画面。
 - 实时屏幕只在任务期间常驻；`phone_live_screen`/`phone_read_screen` 需要时取帧。
 - 验证码先 `phone_read_screen` 识别再输入，不要猜。
 
