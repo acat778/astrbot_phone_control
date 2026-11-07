@@ -548,7 +548,7 @@ canvas {
 @media (max-width: 600px) {
   .app { flex-direction: column; }
   .sider { width: 100%; height: auto; flex-basis: auto; padding: 8px; border-right: 0; border-bottom: 1px solid var(--border); z-index: 5; }
-  .nav { flex-direction: row; overflow-x: auto; }
+  .nav { flex-direction: row; overflow-x: auto; contain: paint; }
   .nav-item { flex: 0 0 auto; white-space: nowrap; min-height: 40px; padding: 8px 12px; }
   .main { padding: 20px 14px; }
   .page-head { flex-wrap: wrap; }
