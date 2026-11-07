@@ -229,14 +229,10 @@ async def dump_ui(
     timeout: float | None = None,
     max_retries: int = 0,
 ) -> ScreenSnapshot:
-    """采集当前界面的 UI 树。
+    """采集当前节点并解析；TTY 失败时用文件路径确认完整结果。
 
-    优先 ``exec-out uiautomator dump /dev/tty``；失败时回退到
-    ``uiautomator dump /sdcard/window_dump.xml`` + ``exec-out cat``；
-    每次尝试内部按 ``max_retries`` 重试，全部失败抛 ``UiDumpError``。
-
-    默认不重试：持续刷新动画的页面（如信息流首页）``waitForIdle`` 必然超时，
-    多轮重试只会把一次失败拖成数十秒，不如尽快降级到截图。
+    直连和 Relay 使用同一采集组件，读取当时可见节点。节点结果是观察证据，
+    页面稳定性与动作结果由后续观察核验。
     """
     attempts = max(0, int(max_retries)) + 1
     last_error: Exception | None = None

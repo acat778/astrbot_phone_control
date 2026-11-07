@@ -25,9 +25,9 @@ def test_runtime_selection_uses_available_system_abi(
     native.chmod(0o700)
     getprop.write_text('#!/bin/sh\nprintf "%s\\n" "$UI_TEST_ABI32"\n')
     getprop.chmod(0o700)
-    command = ui_dump_command("/data/local/tmp/current view.xml").replace(
+    command = ui_dump_command("/data/local/tmp/current view.xml", component="/data/local/tmp/current.jar").replace(
         "/system/bin/app_process32", shlex.quote(str(runtime))
-    )
+    ).replace("/system/bin/app_process", str(native))
     result = subprocess.run(
         ["sh", "-c", command],
         capture_output=True,
@@ -40,10 +40,10 @@ def test_runtime_selection_uses_available_system_abi(
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith(expected + ":")
-    assert result.stdout.rstrip().endswith("dump /data/local/tmp/current view.xml")
+    assert result.stdout.rstrip().endswith("fun.acat.uicapture.UiCapture /data/local/tmp/current view.xml")
     if expected == "32":
         assert "/system/framework/uiautomator.jar" in result.stdout
-        assert "com.android.commands.uiautomator.Launcher" in result.stdout
+        assert "fun.acat.uicapture.UiCapture" in result.stdout
 
 
 def test_runtime_crash_exit_is_propagated(tmp_path):
@@ -53,7 +53,7 @@ def test_runtime_crash_exit_is_propagated(tmp_path):
     )
     runtime.chmod(0o700)
     command = (
-        ui_dump_command("/sdcard/window_dump.xml")
+        ui_dump_command("/sdcard/window_dump.xml", component="/data/local/tmp/current.jar")
         .replace("/system/bin/app_process32", shlex.quote(str(runtime)))
         .replace("$(getprop ro.product.cpu.abilist32)", "x86")
     )

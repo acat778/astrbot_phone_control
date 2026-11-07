@@ -286,13 +286,6 @@ class AppAdbClient(AdbClient):
         value = await self.bridge.call("clipboard", timeout=self._command_timeout)
         return value.get("text", "")
 
-    async def dump_ui_output(self, path, *, timeout=None):
-        if path == "/dev/tty":
-            return await self.exec_out("uiautomator", "dump", path, timeout=timeout)
-        from .ui_commands import ui_dump_command
-
-        return (await self.shell(ui_dump_command(path), timeout=timeout)).encode()
-
     def _observe_generation(self, value):
         if "frame_stream" not in getattr(self.bridge,"peer",{}).get("features",[]):return
         generation=value.get("video_generation")

@@ -1029,10 +1029,10 @@ class AdbClient:
         return stdout
 
     async def dump_ui_output(self, path: str, *, timeout: float | None = None) -> bytes:
-        """使用设备可用的系统运行时采集节点，保留进程退出校验。"""
-        from .ui_commands import ui_dump_command
+        """通过 shell 无障碍连接采集当前节点，保留进程退出校验。"""
+        from .ui_capture import capture_output
 
-        return await self.exec_out("sh", "-c", ui_dump_command(path), timeout=timeout)
+        return await capture_output(self, path, timeout=timeout)
 
     async def screenshot_png(self, *, timeout: float | None = None) -> bytes:
         """截取当前屏幕，返回 PNG 字节（校验魔数与最小长度）。"""
