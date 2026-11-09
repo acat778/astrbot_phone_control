@@ -553,3 +553,5 @@ canvas {
   .main { padding: 20px 14px; }
   .page-head { flex-wrap: wrap; }
 }
+
+#tasks-list { overflow-wrap: anywhere; }
