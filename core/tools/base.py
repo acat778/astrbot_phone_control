@@ -615,6 +615,9 @@ def _wrap_call(handler):
         if self.name in ACTION_TOOLS and outcome_of(result) is None:
             failed = result_failed(result) or _result_text(result).startswith("已中止")
             if failed:
+                if isinstance(result, mcp.types.CallToolResult):
+                    return _append_text(result, action_result("", status="failed", execution="unknown",
+                                                            reason="动作未确认完成，请核对错误与当前页面"))
                 return action_result(_result_text(result), status="failed", execution="unknown",
                                      reason="动作未确认完成，请核对错误与当前页面")
         return result
