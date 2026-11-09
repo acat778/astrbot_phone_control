@@ -1011,7 +1011,13 @@
           });
           detail.append(button);
         }
-        card.append(detail); list.append(card);
+        const remove = button('删除任务', async () => {
+          if (!await confirmAction('停止并删除此任务、执行记录与截图证据？此操作不可恢复。')) return;
+          await state.bridge.apiPost('dashboard/tasks/delete', { id: task.job_id });
+          state.tasksOffset = 0;
+          await loadTasks();
+        });
+        card.append(detail, remove); list.append(card);
       }
     } catch (err) { if (request === state.tasksRequest) setText('tasks-status', err.message || String(err)); }
   }

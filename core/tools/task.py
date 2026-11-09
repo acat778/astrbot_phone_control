@@ -1,4 +1,4 @@
-"""后台任务工具：提交独立手机Agent并查询、取消本人会话任务。"""
+"""后台任务工具：提交独立手机Agent并查询、取消及删除本人会话任务。"""
 
 from __future__ import annotations
 
@@ -25,16 +25,16 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
     description: str = (
         '提交手机子Agent后台执行，立即返回job_id；主Agent继续主任务，无需等待。'
         'action=start传instruction（1-500字），完成后向share_target（默认原会话）分享。'
-        'action=list/status/cancel查询或取消本人的当前会话任务；status/cancel须job_id。'
+        'action=list/status/cancel/delete查询、取消或删除本人的当前会话任务；status/cancel/delete须job_id。删除会停止执行并清理排程、记录和截图。'
         'status包含持久化进度、等待原因、工具记录、截图ID与实际送达证据；list返回最近20项摘要。'
     )
     parameters: dict = Field(default_factory=lambda: {
         'type': 'object',
         'properties': {
-            'action': {'type': 'string', 'enum': ['start', 'list', 'status', 'cancel'], 'default': 'start'},
+            'action': {'type': 'string', 'enum': ['start', 'list', 'status', 'cancel', 'delete'], 'default': 'start'},
             'instruction': {'type': 'string', 'description': '完整手机指令，1-500字。'},
             'share_target': {'type': 'string', 'description': '结果汇报会话UMO；留空使用原会话。', 'default': ''},
-            'job_id': {'type': 'string', 'description': '查询或取消时填写完整任务ID。'},
+            'job_id': {'type': 'string', 'description': '查询、取消或删除时填写完整任务ID。'},
         },
     })
 
@@ -46,8 +46,8 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
         if denied:
             raise _PermissionDenied(denied)
         action = str(kwargs.get('action') or 'start').strip().lower()
-        if action not in {'start', 'list', 'status', 'cancel'}:
-            return 'error: action只能是start/list/status/cancel'
+        if action not in {'start', 'list', 'status', 'cancel', 'delete'}:
+            return 'error: action只能是start/list/status/cancel/delete'
         if self.service.is_task_session(event):
             return 'error: 当前已是独立手机任务，请直接完成指令；任务管理由发起会话执行。'
         session = str(getattr(event, 'unified_msg_origin', '') or '')
@@ -121,6 +121,9 @@ class PhoneStartBackgroundTaskTool(_PhoneToolBase):
             return 'error: 当前用户会话没有此后台手机任务，请核对完整job_id'
         if action == 'status':
             return _json_text(record)
+        if action == 'delete':
+            from ..task_management import delete_background_task
+            return _json_text(await delete_background_task(self.service, job_id))
         if record['status'] not in {'queued', 'running'}:
             return _json_text(record)
         cancel = getattr(self.service, 'background_cancel_hook', None)

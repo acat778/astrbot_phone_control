@@ -180,6 +180,17 @@ class BackgroundTaskRegistry:
         with self._db() as db:
             return db.execute('SELECT mime, data FROM evidence WHERE task_id=? AND id=?', (job_id, evidence_id)).fetchone()
 
+    def delete(self, job_id):
+        with self._db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT body FROM tasks WHERE id=?', (job_id,)).fetchone()
+            if row is None:
+                return
+            if json.loads(row[0])['status'] in ACTIVE:
+                raise PhoneControlError('请先停止任务执行再删除记录')
+            db.execute('DELETE FROM evidence WHERE task_id=?', (job_id,))
+            db.execute('DELETE FROM tasks WHERE id=?', (job_id,))
+
     def owned(self, sender: str, session: str):
         return sorted((r for r in self.records.values() if r['sender'] == sender and r['session'] == session), key=lambda r: r['created_at'], reverse=True)
 

@@ -545,8 +545,8 @@ class CommandsMixin:
         args = rest or []
         action = args[0].lower() if args else 'list'
         job_id = args[1] if len(args) > 1 else ''
-        if action not in {'list', 'status', 'cancel', 'evidence'}:
-            await self._say(event, '用法：/phone tasks [list | status/cancel <完整任务ID> | evidence <完整任务ID> <截图ID>]')
+        if action not in {'list', 'status', 'cancel', 'delete', 'evidence'}:
+            await self._say(event, '用法：/phone tasks [list | status/cancel/delete <完整任务ID> | evidence <完整任务ID> <截图ID>]')
             return
         context = SimpleNamespace(context=SimpleNamespace(event=event))
         result = await PhoneStartBackgroundTaskTool(service=self.service).call(
@@ -555,6 +555,9 @@ class CommandsMixin:
             payload = json.loads(str(result))
         except (TypeError, json.JSONDecodeError):
             await self._say(event, str(result))
+            return
+        if action == 'delete':
+            await self._say(event, '已删除后台任务 ' + job_id + '，执行记录与截图证据已清理。')
             return
         if action == 'evidence':
             import base64

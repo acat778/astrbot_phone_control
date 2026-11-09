@@ -15,6 +15,7 @@ class LibraryDashboardMixin:
     def _library_dashboard_routes(self, base):
         return (
             (f"{base}/tasks", self.dashboard_tasks, ["GET"], "后台任务进度与结果"),
+            (f"{base}/tasks/delete", self.dashboard_task_delete, ["POST"], "停止并删除后台任务及证据"),
             (f"{base}/tasks/evidence", self.dashboard_task_evidence, ["GET"], "后台任务截图证据"),
             (f"{base}/mesh/ca", self.dashboard_mesh_ca, ["GET"], "下载抓包 CA"),
             (f"{base}/mesh", self.dashboard_mesh, ["GET"], "组网状态"),
@@ -68,6 +69,14 @@ class LibraryDashboardMixin:
             return error_response('分页参数无效', status_code=400)
         except PhoneControlError as exc:
             return error_response(str(exc), status_code=500)
+
+    async def dashboard_task_delete(self):
+        from ..task_management import delete_background_task
+        try:
+            data = await self._library_request()
+            return json_response(await delete_background_task(self.service, data['id']))
+        except PhoneControlError as exc:
+            return error_response(str(exc), status_code=400)
 
     async def dashboard_task_evidence(self):
         query = plugin_main_module().request.query
