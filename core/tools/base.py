@@ -608,4 +608,14 @@ def _wrap_call(handler):
                 )
         return result
 
-    return wrapper
+    async def with_outcome(self, context, **kwargs):
+        result = await wrapper(self, context, **kwargs)
+        from ..action_outcomes import ACTION_TOOLS, action_result, outcome_of
+        from ..tool_reports import result_failed
+        if self.name in ACTION_TOOLS and outcome_of(result) is None:
+            failed = result_failed(result) or _result_text(result).startswith("已中止")
+            if failed:
+                return action_result(_result_text(result), status="failed", execution="unknown",
+                                     reason="动作未确认完成，请核对错误与当前页面")
+        return result
+    return with_outcome

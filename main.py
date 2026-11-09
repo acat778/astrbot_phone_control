@@ -539,8 +539,8 @@ class PhoneControlPlugin(
             cancelled = bool(running and running[0].cancelled())
             status = "cancelled" if cancelled else ("completed" if response is not None else "ended")
             record = self.service.background_tasks.records.get(job_id)
-            if status == "completed" and record and record['events'] and not record['events'][-1]['ok']:
-                status = "failed"
+            if status == "completed":
+                status = self.service.background_tasks.completion_status(job_id)
             self.service.background_tasks.update(job_id, status, str(getattr(response, "completion_text", "") or ""))
         try:
             from .core.interactions import RUN_EXTRA

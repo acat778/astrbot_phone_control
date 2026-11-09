@@ -10,6 +10,7 @@ import sqlite3
 import time
 import uuid
 
+from .action_outcomes import outcome_of
 from .errors import PhoneControlError
 from .tool_reports import result_failed, result_text, safe_summary
 
@@ -109,6 +110,8 @@ class BackgroundTaskRegistry:
                 if result:
                     record['progress'] = str(result)[:500]
                 record['wait_reason'] = '' if status == 'completed' else (str(result)[:500] or record['wait_reason'] or '执行已结束，未确认结果')
+                if status == 'ended' and record.get('action_result_counts', {}).get('result_unconfirmed'):
+                    record['wait_reason'] = '动作已执行，仍有目标结果未确认；请核对动作记录与截图证据'
                 if status == 'failed' and record['events'] and not record['events'][-1]['ok']:
                     record['wait_reason'] = record['events'][-1]['summary']
         self._change(job_id, change)
@@ -126,8 +129,23 @@ class BackgroundTaskRegistry:
             record.update(last_tool=name, steps=record['steps'] + 1,
                           progress=f'{name}：{summary}',
                           wait_reason=summary if failed else '等待模型决定下一步')
-            record['events'] = (record['events'] + [{'ts': time.time(), 'tool': name, 'ok': not failed, 'summary': summary}])[-50:]
+            outcome = outcome_of(result)
+            if outcome:
+                counts = record.setdefault('action_result_counts', {})
+                counts[outcome['status']] = counts.get(outcome['status'], 0) + 1
+                record['action_outcomes'] = (record.get('action_outcomes', []) + [outcome])[-100:]
+            record['events'] = (record['events'] + [{'ts': time.time(), 'tool': name, 'ok': not failed, 'outcome': outcome_of(result), 'summary': summary}])[-50:]
         self._change(event_job_id(event), change)
+
+    def completion_status(self, job_id):
+        record = self.records.get(job_id) or {}
+        outcomes = record.get('action_outcomes', [])
+        counts = record.get('action_result_counts', {})
+        if counts.get('failed') or any(o['status'] == 'failed' for o in outcomes) or (record.get('events') and not record['events'][-1]['ok']):
+            return 'failed'
+        if counts.get('result_unconfirmed') or any(o['status'] == 'result_unconfirmed' for o in outcomes):
+            return 'ended'
+        return 'completed'
 
     def waiting(self, event, reason):
         def change(record, db):

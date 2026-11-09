@@ -16,6 +16,7 @@ from astrbot.core.message.message_event_result import MessageChain
 from ..page_content import page_traffic_footer
 from ..errors import PhoneControlError, UiDumpError, UiTargetNotFoundError
 
+from ..action_outcomes import EXPECT_PARAMETER, ResultExpectation, action_result
 from ..ui_snapshot import event_owner
 
 from .base import _event_of, _PhoneToolBase, _as_float, _as_int, _json_text, _ok, _wrap_call
@@ -265,12 +266,13 @@ class PhoneTapTool(_PhoneToolBase):
     description: str = (
         "点击手机屏幕。优先使用 phone_screen 的 snapshot_id＋node_ref；也可传坐标或 text/desc。"
         "定位控件中心再点击；text/desc 优先于坐标。屏幕字段的 *_truncated=true "
-        "表示值为原文前缀，可直接用于子串定位。"
+        "表示值为原文前缀，可直接用于子串定位。重要操作提供expect结果条件；已点击只证明指令执行。"
     )
     parameters: dict = Field(
         default_factory=lambda: {
             "type": "object",
             "properties": {
+                **EXPECT_PARAMETER,
                 **_SNAPSHOT_PARAMETERS,
                 "x": {"type": "integer", "description": "点击横坐标（像素）。", "default": 0},
                 "y": {"type": "integer", "description": "点击纵坐标（像素）。", "default": 0},
@@ -309,6 +311,8 @@ class PhoneTapTool(_PhoneToolBase):
             return "error: 请提供 text/desc 定位控件，或提供有效的 x/y 坐标"
         else:
             label = f"({x},{y})"
+        expected = ResultExpectation(kwargs.get("expect"))
+        await expected.prepare(self.service)
         if target is not None:
             await self.service.tap(x, y, snapshot_check=snapshot_check)
         else:
@@ -322,7 +326,7 @@ class PhoneTapTool(_PhoneToolBase):
             bored_note = self._novelty_bored_note(match)
             if bored_note:
                 result += f"\n（{bored_note}）"
-        return _ok(result)
+        return await expected.finish(self.service, result)
 
 
 @dataclass
@@ -338,6 +342,7 @@ class PhoneLongPressTool(_PhoneToolBase):
         default_factory=lambda: {
             "type": "object",
             "properties": {
+                **EXPECT_PARAMETER,
                 **_SNAPSHOT_PARAMETERS,
                 "x": {"type": "integer", "description": "长按横坐标（像素）。", "default": 0},
                 "y": {"type": "integer", "description": "长按纵坐标（像素）。", "default": 0},
@@ -382,11 +387,13 @@ class PhoneLongPressTool(_PhoneToolBase):
             return "error: 请提供 text/desc 定位控件，或提供有效的 x/y 坐标"
         else:
             label = f"({x},{y})"
+        expected = ResultExpectation(kwargs.get("expect"))
+        await expected.prepare(self.service)
         if target is not None:
             await self.service.long_press(x, y, duration_ms=duration_ms, snapshot_check=snapshot_check)
         else:
             await self.service.long_press(x, y, duration_ms=duration_ms)
-        return _ok(f"已长按 {label} @({x},{y})，{duration_ms}ms")
+        return await expected.finish(self.service, f"已长按 {label} @({x},{y})，{duration_ms}ms")
 
 
 @dataclass
@@ -402,6 +409,7 @@ class PhoneSwipeTool(_PhoneToolBase):
         default_factory=lambda: {
             "type": "object",
             "properties": {
+                **EXPECT_PARAMETER,
                 "direction": {
                     "type": "string",
                     "enum": ["up", "down", "left", "right"],
@@ -425,8 +433,10 @@ class PhoneSwipeTool(_PhoneToolBase):
         if direction not in {"up", "down", "left", "right"}:
             return f"error: 不支持的方向 {direction!r}，只能是 up/down/left/right"
         duration_ms = _as_int(kwargs.get("duration_ms"), 400)
+        expected = ResultExpectation(kwargs.get("expect"))
+        await expected.prepare(self.service)
         await self.service.swipe_direction(direction, duration_ms=duration_ms)
-        return _ok(f"已向 {direction} 滑动（{duration_ms}ms）")
+        return await expected.finish(self.service, f"已向 {direction} 滑动（{duration_ms}ms）")
 
 
 @dataclass
@@ -443,6 +453,7 @@ class PhoneInputTextTool(_PhoneToolBase):
         default_factory=lambda: {
             "type": "object",
             "properties": {
+                **EXPECT_PARAMETER,
                 "text": {"type": "string", "description": "要输入的文本。"},
                 "replace": {
                     "type": "boolean",
@@ -481,21 +492,26 @@ class PhoneInputTextTool(_PhoneToolBase):
             return "error: text 不能为空"
         press_enter = bool(kwargs.get("press_enter", False))
         replace = bool(kwargs.get("replace", False))
+        expected = ResultExpectation(kwargs.get("expect"))
+        await expected.prepare(self.service)
         if replace:
             await self.service.actions.clear_text()
         await self.service.input_text(text, press_enter=False)
         try:
             verified = await self._verify_input(text, replace)
         except UiDumpError as exc:
-            return (
+            return action_result(
                 f"文字输入操作已执行，但 UI 核验失败（{exc}），当前输入值未确认；本次未回车。"
-                '请先用 phone_screen(mode="image") 核对输入框内容，确认前不要重复输入或提交。'
+                '请先用 phone_screen(mode="image") 核对输入框内容，确认前不要重复输入或提交。', reason='UI核验失败，未回车'
             )
         if not verified:
-            return "文字输入命令已执行，但实际输入值未确认；先看当前截图核对聚焦和关键词，再提交搜索。"
+            return action_result("文字输入命令已执行，但实际输入值未确认；先看当前截图核对聚焦和关键词，再提交搜索。", reason="实际输入值未确认，未回车")
         if press_enter:
             await self.service.press_key("enter")
-        return _ok(f"已核对输入关键词（{len(text)} 字）" + ("并回车；请核对搜索结果" if press_enter else "；按当前 App 的按钮或回车逻辑提交"))
+        message = f"已核对输入关键词（{len(text)} 字）" + ("并回车；请核对搜索结果" if press_enter else "；按当前 App 的按钮或回车逻辑提交")
+        if kwargs.get("expect") is not None or press_enter:
+            return await expected.finish(self.service, message)
+        return action_result(message, status="execution_succeeded", reason="当前聚焦编辑框的实际输入值已核对；提交尚未执行")
 
     async def _verify_input(self, text: str, replace: bool) -> bool:
         """核验输入；可读节点确认不匹配时重新聚焦并按原语义重试一次。"""
@@ -537,6 +553,7 @@ class PhoneKeyTool(_PhoneToolBase):
         default_factory=lambda: {
             "type": "object",
             "properties": {
+                **EXPECT_PARAMETER,
                 "key": {
                     "type": "string",
                     "description": "按键名，如 back/home/enter/recents/volume_up。",
@@ -552,8 +569,10 @@ class PhoneKeyTool(_PhoneToolBase):
         key = str(kwargs.get("key") or "").strip().lower()
         if not key:
             return "error: key 不能为空"
+        expected = ResultExpectation(kwargs.get("expect"))
+        await expected.prepare(self.service)
         await self.service.press_key(key)
-        return _ok(f"已发送按键 {key}")
+        return await expected.finish(self.service, f"已发送按键 {key}")
 
 
 @dataclass

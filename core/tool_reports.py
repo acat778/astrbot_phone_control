@@ -35,6 +35,10 @@ def result_text(result):
 
 
 def result_failed(result):
+    from .action_outcomes import outcome_of
+    detail = outcome_of(result)
+    if detail is not None and detail["status"] == "failed":
+        return True
     if result is None:
         return True
     if isinstance(result, dict):

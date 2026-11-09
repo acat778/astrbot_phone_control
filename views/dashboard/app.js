@@ -995,7 +995,7 @@
           const sent = document.createElement('p'); sent.textContent = `已送达 ${fmtDateTime(delivery.ts)}：${delivery.text} ${delivery.link}`; detail.append(sent);
         }
         for (const entry of task.events) {
-          const line = document.createElement('p'); line.textContent = `${fmtTime(entry.ts)} ${entry.tool} ${entry.ok ? '成功' : '未完成'}：${entry.summary}`; detail.append(line);
+          const line = document.createElement('p'); line.textContent = `${fmtTime(entry.ts)} ${entry.tool} ${entry.outcome ? ({execution_succeeded: '执行成功（结果已确认）', result_unconfirmed: '结果未确认', failed: '失败'}[entry.outcome.status]) : (entry.ok ? '已执行' : '失败')}：${entry.summary}`; detail.append(line);
         }
         for (const shot of task.screenshots) {
           const button = document.createElement('button'); button.type = 'button'; button.className = 'btn ghost';

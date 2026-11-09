@@ -11,6 +11,7 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
+from ..action_outcomes import EXPECT_PARAMETER, ResultExpectation
 from .. import skills as skills_mod
 from ..apps import app_label_for_package, parse_package_list
 from ..errors import PhoneControlError
@@ -32,6 +33,7 @@ class PhoneOpenAppTool(_PhoneToolBase):
         default_factory=lambda: {
             "type": "object",
             "properties": {
+                **EXPECT_PARAMETER,
                 "app": {
                     "type": "string",
                     "description": "App 名称（中文标签/别名，如微信、小红书）或 Android 包名。",
@@ -50,13 +52,15 @@ class PhoneOpenAppTool(_PhoneToolBase):
                 "error: app 不能为空；可先调用 phone_list_apps 查看已安装 App，"
                 "或用中文名/包名指定"
             )
+        expected = ResultExpectation(kwargs.get("expect"))
+        await expected.prepare(self.service)
         opened = _ok(await self.service.open_app(app))
         text = (
             f"{opened}\n"
             "建议先 phone_check_inbox 浏览新消息（消息/回复我的/私信/通知），"
             "再决定接下来做什么。"
         )
-        return _ok(text)
+        return await expected.finish(self.service, text)
 
 
 @dataclass
