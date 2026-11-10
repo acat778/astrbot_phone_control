@@ -7,7 +7,16 @@ from unittest.mock import AsyncMock
 import pytest
 
 from core.errors import PhoneControlError
-from core.installed_apps import list_apps
+from core.installed_apps import list_apps, parse_installed_packages
+
+
+def test_platform_and_overlay_package_names_are_valid_inventory_entries():
+    assert parse_installed_packages("package:android\npackage:com.android.settings\npackage:android.auto_generated_rro_product__\npackage:android\n") == [
+        "android", "android.auto_generated_rro_product__", "com.android.settings",
+    ]
+    for output in ("package:com.valid.app\nFailure [user unavailable]", "package:", "package:com.bad;id", "package:com..bad"):
+        with pytest.raises(PhoneControlError, match="无效清单"):
+            parse_installed_packages(output)
 
 
 @pytest.mark.parametrize("scope,flag", [("third_party", " -3"), ("system", " -s"), ("all", "")])

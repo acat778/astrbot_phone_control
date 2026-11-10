@@ -1,10 +1,26 @@
 """当前 Android 用户的已安装应用清单、筛选与分页。"""
 
-from .apps import app_label_for_package, parse_package_list
+import re
+
+from .apps import app_label_for_package
 from .errors import PhoneControlError
 
 
 SCOPES = {"third_party": "第三方", "system": "系统", "all": "全部"}
+
+
+def parse_installed_packages(output):
+    """校验包管理器完整输出，支持单段系统包名。"""
+    packages = set()
+    for line in output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        match = re.fullmatch(r"package:([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)", line)
+        if match is None:
+            raise PhoneControlError("读取已安装 App 失败：包管理器返回无效清单")
+        packages.add(match[1])
+    return sorted(packages)
 
 
 async def list_apps(adb, *, scope="third_party", query="", offset=0, limit=50, policy=None):
@@ -17,10 +33,7 @@ async def list_apps(adb, *, scope="third_party", query="", offset=0, limit=50, p
         raise PhoneControlError("query 需为不超过 200 字的名称或包名关键词")
     flag = {"third_party": " -3", "system": " -s", "all": ""}[scope]
     output = await adb.shell("pm list packages --user current" + flag, timeout=20)
-    packages = parse_package_list(output)
-    if any(line.strip() and parse_package_list(line) != [line.strip().removeprefix("package:")]
-           for line in output.splitlines()):
-        raise PhoneControlError("读取已安装 App 失败：包管理器返回无效清单")
+    packages = parse_installed_packages(output)
     keyword = query.strip().casefold()
     matches = [(package, app_label_for_package(package)) for package in packages]
     matches = [(package, label) for package, label in matches
