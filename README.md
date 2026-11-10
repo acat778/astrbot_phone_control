@@ -203,6 +203,7 @@ ADB 从 [Google 官方平台包](https://developer.android.com/tools/releases/pl
 
 | 命令 | 用途 |
 | --- | --- |
+| `/phone apps [third_party\|system\|all] [关键词] [--page N]` | 实时读取当前 Android 用户已安装应用，按名称表标签/包名筛选与分页，直接查询不消耗模型额度 |
 | `/phone help`、`/phone status` | 帮助与设备状态，可切换图片/文字 |
 | `/phone browse [app] [条数]` | 浏览信息流并记录理解 |
 | `/phone task <instruction>`、`/phone tasks [list]` | 提交后台多步任务与查询本人会话的最近任务进度 |

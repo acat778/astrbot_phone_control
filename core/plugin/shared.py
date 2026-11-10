@@ -72,7 +72,7 @@ _PHONE_CONTROL_TOOLS = frozenset(
 
 
 _GUIDANCE = (
-    "【手机操控能力】39 个 phone_* 工具；先 phone_skill 读手册。重复任务可用 phone_task_template 生成参数草案，展示正文和参数后由用户发送确认命令保存；已确认模板可带参数运行。\n应用安全：先 phone_list_apps 查看模型识别类型；金融类应用拒绝打开，类型未确认或模型失败也拒绝。打开应用必须用 phone_open_app/phone_browse，不得改用桌面图标、深链或 shell 绕过分类。\n"
+    "【手机操控能力】39 个 phone_* 工具；先 phone_skill 读手册。重复任务可用 phone_task_template 生成参数草案，展示正文和参数后由用户发送确认命令保存；已确认模板可带参数运行。\n应用安全：先 phone_list_apps 查看已安装应用，classify=true 可读取本页模型识别类型；金融类应用拒绝打开，类型未确认或模型失败也拒绝。打开应用必须用 phone_open_app/phone_browse，不得改用桌面图标、深链或 shell 绕过分类。\n"
     + DELIVERY_GUIDANCE + "\n"
     "动作结果：已点击/已输入仅说明指令执行。重要操作须传expect结果条件（目标页新文本、提交成功提示或节点文字变化），工具返回execution_succeeded/结果已确认才能认定目标达成；result_unconfirmed时先观察核对，不盲目重放或声称提交成功。failed保留实际执行状态与失败原因。\n"
     "存图：开关开启后图文 read 按兴趣 phone_save_image，填写描述/标签/理由，按配置存服务端/手机/两地；phone_saved_images 可查询服务端/手机本地图片；发帖/回复按语义决定是否配图，相关时 search 阅读描述、gate 预约，再 prepare(kind/reason) 并在 App 选图核对预览，无合适图片用文字。保存与分享独立。\n"
@@ -198,6 +198,7 @@ _HELP_TEXT = """手机操控插件指令：
 /phone connect        重新连接 ADB 设备
 /phone screenshot     截图并发送到当前会话
 /phone open <app>     打开通过类型识别的已安装 App（中文名/别名/包名）
+/phone apps [third_party|system|all] [关键词] [--page N]  读取已安装应用，不调用模型
 /phone browse [app] [条数]  浏览通过类型识别的已安装 App 的信息流并记入记忆
 /phone diary [条数|关键词]  查看/检索浏览日志
 /phone auto on <app[,app]> [cron]  创建定时自主浏览任务（cron 默认取配置）

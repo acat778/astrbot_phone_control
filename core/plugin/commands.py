@@ -264,6 +264,21 @@ class CommandsMixin:
                 )
                 return
             await self._say(event, await self.service.open_app(rest[0]))
+        elif sub == "apps":
+            from ..installed_apps import SCOPES, list_apps
+
+            scope = rest.pop(0) if rest and rest[0] in SCOPES else "third_party"
+            page = 1
+            if "--page" in rest:
+                index = rest.index("--page")
+                if index != len(rest) - 2 or not rest[-1].isdigit() or int(rest[-1]) < 1:
+                    await self._say(event, "用法：/phone apps [third_party|system|all] [关键词] [--page 正整数]")
+                    return
+                page = int(rest[-1])
+                rest = rest[:index]
+            await self._say(event, await list_apps(
+                self.service.adb, scope=scope, query=" ".join(rest), offset=(page - 1) * 50,
+            ))
         elif sub == "browse":
             await self._cmd_browse(event, config, rest)
         elif sub == "diary":

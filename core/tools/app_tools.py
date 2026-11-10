@@ -13,7 +13,7 @@ from astrbot.core.astr_agent_context import AstrAgentContext
 
 from ..action_outcomes import EXPECT_PARAMETER, ResultExpectation
 from .. import skills as skills_mod
-from ..apps import app_label_for_package, parse_package_list
+from ..installed_apps import list_apps
 from ..errors import PhoneControlError
 
 from .base import _PhoneToolBase, _as_int, _image_result, _ok, _wrap_call
@@ -119,46 +119,38 @@ class PhoneCheckInboxTool(_PhoneToolBase):
 
 @dataclass
 class PhoneListAppsTool(_PhoneToolBase):
-    """列出手机已安装的第三方 App。"""
+    """读取手机已安装 App，可按范围、名称与包名筛选。"""
 
     name: str = "phone_list_apps"
     description: str = (
-        "列出手机已安装第三方 App 的包名、名称和模型识别类型；金融类拒绝打开，未知或识别失败同样拒绝。"
-        "用于决定接下来打开/浏览哪个 App：可从列表里按自己的喜好选一个开始，"
-        "不限于预置 App；也可以用中文名/包名直接 phone_open_app 或 phone_browse。"
+        "实时读取当前 Android 用户已安装 App 的包名与名称表标签，支持第三方/系统/全部、关键词与分页。"
+        "默认仅查询清单，不调用分类模型；classify=true 对本页调用模型分类。"
+        "名称未收录时显示包名。打开应用仍须用 phone_open_app/phone_browse 完成类型校验。"
     )
     parameters: dict = Field(
-        default_factory=lambda: {"type": "object", "properties": {}}
+        default_factory=lambda: {"type": "object", "properties": {
+            "scope": {"type": "string", "enum": ["third_party", "system", "all"], "default": "third_party", "description": "应用范围，默认第三方。"},
+            "query": {"type": "string", "default": "", "maxLength": 200, "description": "名称表标签或包名关键词，不区分大小写。"},
+            "offset": {"type": "integer", "minimum": 0, "default": 0, "description": "跳过的匹配应用数。"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50, "description": "每页应用数，最多200。"},
+            "classify": {"type": "boolean", "default": False, "description": "是否额外调用模型识别本页应用类型，消耗模型额度。"},
+        }}
     )
 
     @_wrap_call
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
-        await self._guard(context)
-        adb = self.service.adb
-        try:
-            output = await adb.shell("pm list packages -3")
-        except PhoneControlError as exc:
-            return f"error: 读取已安装 App 失败：{exc}"
-        packages = parse_package_list(output)
-        if not packages:
-            return (
-                "error: 没有读到已安装的第三方 App（pm list packages -3 无有效输出），"
-                "请确认设备已连接且允许安装第三方应用"
-            )
-        lines = [f"已安装第三方 App（{len(packages)} 个，按包名排序）："]
-        for package in packages:
-            label = app_label_for_package(package)
-            name = f"{label}（{package}）" if label else package
-            try:
-                kind = await self.service.app_policy.classify(package)
-                lines.append(f"- {name}：{kind['category_label']} · {'允许打开' if kind['allowed'] else '拒绝打开'}；{kind['reason']}")
-            except PhoneControlError as exc:
-                lines.append(f"- {name}：未确认 · 拒绝打开；{exc}")
-        lines.append("")
-        lines.append(
-            "可从中按自己的喜好选一个开始，不限于预置 App；打开或浏览时直接给上面的中文名或包名即可。"
+        classify = kwargs.get("classify", False)
+        if type(classify) is not bool:
+            raise PhoneControlError("classify 需为布尔值")
+        if classify:
+            await self._guard(context)
+        else:
+            await self._guard_light(context)
+        return await list_apps(
+            self.service.adb, scope=kwargs.get("scope", "third_party"),
+            query=kwargs.get("query", ""), offset=kwargs.get("offset", 0),
+            limit=kwargs.get("limit", 50), policy=self.service.app_policy if classify else None,
         )
-        return _ok("\n".join(lines))
 
 
 _CLEAN_PACKAGE_RE = re.compile(r"^[A-Za-z0-9._]+$")

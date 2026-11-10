@@ -116,7 +116,7 @@ _TOOL_DESC_COMPACT: dict[str, str] = {
     "phone_key": "发送按键：back/home/enter/recents/volume_*/power/tab/delete 等。",
     "phone_open_app": "按中文名/别名/包名打开任意已安装 App。",
     "phone_check_inbox": "进入 App 浏览新消息（回复我的/私信/通知），被动回复前先看。",
-    "phone_list_apps": "列出已安装第三方 App（包名+中文名），用于选择 App。",
+    "phone_list_apps": "读取已安装 App，支持范围、名称/包名筛选和分页，可选模型分类。",
     "phone_screenshot": "截图（默认仅回传模型不发用户）；返回 method/耗时，可 fast。",
     "phone_bypass_verify": (
         "人机验证手动精细控制：capture 快速截图不跑 dump；drag 拖拽一次完成；"
