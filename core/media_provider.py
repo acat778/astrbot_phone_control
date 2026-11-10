@@ -4,6 +4,7 @@ from copy import deepcopy
 from urllib.parse import urlsplit, urlunsplit
 
 from .errors import PhoneControlError
+from .asr_audio import transcribe_audio
 
 
 def audio_adapter_config(provider):
@@ -114,7 +115,7 @@ class MediaProviders:
             self.service is None
             or manager_for(self.service).policy("asr").mode == "disabled"
         ):
-            return await provider.get_text(str(audio))
+            return await transcribe_audio(provider, audio)
 
         async def call(chosen):
             selected = self.provider(chosen)
@@ -122,7 +123,7 @@ class MediaProviders:
                 raise PhoneControlError("语音模型不存在")
             get_text = getattr(selected, "get_text", None)
             if callable(get_text):
-                result = await get_text(str(audio))
+                result = await transcribe_audio(selected, audio)
             else:
                 response = await self._generate_one(
                     chat_provider_id=chosen,
@@ -181,7 +182,7 @@ class MediaProviders:
                 or video_path is not None
             ):
                 raise PhoneControlError("STT 模型只接收单个音频转写输入")
-            text = await get_text(kwargs["audio_urls"][0])
+            text = await transcribe_audio(selected, kwargs["audio_urls"][0])
             if not str(text or "").strip():
                 raise PhoneControlError("语音模型返回空转写")
             return SimpleNamespace(
